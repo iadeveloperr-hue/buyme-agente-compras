@@ -96,8 +96,10 @@ def _primeiro(e: BaseException) -> BaseException:
 
 
 async def _executar(pedido: str) -> Resultado:
-    llm = AsyncOpenAI(base_url="https://openrouter.ai/api/v1",
-                      api_key=os.environ["OPENROUTER_API_KEY"], timeout=60)
+    chave = os.getenv("OPENROUTER_API_KEY", "").strip()
+    if not chave:
+        raise FalhaLLM("OPENROUTER_API_KEY não está configurada no .env")
+    llm = AsyncOpenAI(base_url="https://openrouter.ai/api/v1", api_key=chave, timeout=60)
     async with streamablehttp_client(MCP_URL) as (read, write, _):
         async with ClientSession(read, write) as mcp:
             await mcp.initialize()
