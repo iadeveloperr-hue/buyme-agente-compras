@@ -1,0 +1,29 @@
+:root {
+  --fundo: #f6f7f9; --cartao: #fff; --texto: #1d2330; --suave: #6b7280;
+  --marca: #1f4fd8; --erro: #b42318; --erro-fundo: #fef3f2; --borda: #e5e7eb;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--fundo); color: var(--texto); font: 15px/1.5 system-ui, sans-serif; }
+main { max-width: 760px; margin: 0 auto; padding: 24px 16px 120px; }
+h1 { margin: 0; font-size: 22px; }
+.sub { color: var(--suave); margin: 4px 0 20px; }
+.conversa { display: flex; flex-direction: column; gap: 12px; }
+.msg { padding: 12px 14px; border-radius: 10px; max-width: 100%; }
+.msg p { margin: 0 0 8px; }
+.pessoa { align-self: flex-end; background: var(--marca); color: #fff; }
+.agente { background: var(--cartao); border: 1px solid var(--borda); }
+.carregando { color: var(--suave); font-style: italic; }
+.erro { background: var(--erro-fundo); border-color: #fecdca; color: var(--erro); }
+.aviso { color: var(--suave); font-size: 13px; }
+.numero { font-weight: 600; margin-bottom: 6px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--borda); }
+td:nth-child(n+2), th:nth-child(n+2) { text-align: right; white-space: nowrap; }
+tfoot td { font-weight: 600; border-bottom: none; }
+.ferramentas { margin-top: 8px; font-size: 13px; color: var(--suave); }
+.ferramentas .falhou { color: var(--erro); }
+form { position: fixed; bottom: 0; left: 0; right: 0; display: flex; gap: 8px; padding: 12px 16px;
+       background: var(--cartao); border-top: 1px solid var(--borda); justify-content: center; }
+input { flex: 1; max-width: 640px; padding: 10px 12px; border: 1px solid var(--borda); border-radius: 8px; font: inherit; }
+button { padding: 10px 18px; border: 0; border-radius: 8px; background: var(--marca); color: #fff; font: inherit; cursor: pointer; }
+button:disabled { opacity: .5; cursor: default; }

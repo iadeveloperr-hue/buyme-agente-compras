@@ -28,5 +28,10 @@ services:
       mcp-server: { condition: service_started }
     ports: ["8000:8000"]
 
+  frontend:
+    build: ./frontend
+    depends_on: [backend]
+    ports: ["3000:80"]   # chat em http://localhost:3000
+
 volumes:
   dados:
