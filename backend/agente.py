@@ -21,7 +21,8 @@ monta uma requisição de compra usando SOMENTE produtos do catálogo.
 Como trabalhar:
 - O catálogo está em inglês: busque com termos em inglês (ex.: "notebook" -> "laptop").
 - Se a primeira busca não trouxer nada, tente sinônimos antes de desistir.
-- Use detalhar_produto quando precisar confirmar estoque ou detalhes antes de escolher.
+- Use detalhar_produto só com ids que vieram de uma busca, quando precisar confirmar
+  estoque ou detalhes antes de escolher. Nunca tente ids aleatórios para explorar o catálogo.
 - Respeite quantidade, orçamento (os preços estão em USD) e qualquer outra restrição do pedido.
 - Entre opções que atendem, prefira a de melhor custo-benefício e explique em uma frase.
 
@@ -29,7 +30,9 @@ Regras que você não pode quebrar:
 - Nunca invente produto, id, preço ou estoque. Só use o que as ferramentas devolveram.
 - Se nada atender (não existe, estoque insuficiente, acima do orçamento), NÃO escolha
   algo parecido para fechar o pedido: devolva itens vazio e diga o que faltou.
-- Se uma ferramenta devolver CATALOGO_INDISPONIVEL, pare e informe isso.
+- Busca com lista vazia significa que o catálogo NÃO TEM esse produto (não é falha):
+  diga que o item não existe no catálogo. Só fale em indisponibilidade se uma
+  ferramenta devolver CATALOGO_INDISPONIVEL; nesse caso, pare e informe isso.
 
 Quando terminar, responda APENAS com este JSON:
 {"itens": [{"produto_id": <int>, "quantidade": <int>}],
@@ -70,6 +73,21 @@ def registrar_vistos(conteudo: str, vistos: dict[int, dict]) -> None:
     for p in lista if isinstance(lista, list) else [lista]:
         if isinstance(p, dict) and "id" in p and "preco_usd" in p:
             vistos[int(p["id"])] = p
+
+
+def id_sem_busca(nome: str, args: dict, vistos: dict[int, dict]) -> str | None:
+    """Nos testes o modelo chutava ids (1..5, 101..104) para "explorar" o catálogo, mesmo
+    com o prompt proibindo. A regra fica no código: só detalha id que veio de uma busca."""
+    if nome != "detalhar_produto":
+        return None
+    try:
+        pid = int(args.get("id"))
+    except (TypeError, ValueError):
+        return "RECUSADO: id inválido."
+    if pid not in vistos:
+        return (f"RECUSADO: o id {pid} não veio de nenhuma busca. "
+                "Use buscar_produtos primeiro e detalhe só ids do resultado.")
+    return None
 
 
 def extrair_json(texto: str) -> dict:
@@ -135,6 +153,12 @@ async def _executar(pedido: str) -> Resultado:
                 msgs.append(msg.model_dump(exclude_none=True))
                 for call in msg.tool_calls:
                     args = json.loads(call.function.arguments or "{}")
+                    recusa = id_sem_busca(call.function.name, args, res.vistos)
+                    if recusa:  # não chega ao catálogo; o modelo recebe o motivo e segue
+                        res.ferramentas.append({"nome": call.function.name, "argumentos": args,
+                                                "erro": recusa})
+                        msgs.append({"role": "tool", "tool_call_id": call.id, "content": recusa})
+                        continue
                     out = await mcp.call_tool(call.function.name, args)
                     texto = "\n".join(c.text for c in out.content if hasattr(c, "text"))
                     if out.isError and "CATALOGO_INDISPONIVEL" in texto:

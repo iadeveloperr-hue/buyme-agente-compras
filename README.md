@@ -43,6 +43,10 @@ python scripts/avaliar.py      # com o ambiente no ar: 5 pedidos de teste, mostr
    O backend guarda todo produto que as ferramentas devolveram na conversa e monta os itens a partir
    deles ([backend/validacao.py](backend/validacao.py)). Um id que o catálogo não devolveu é recusado
    como invenção, e uma quantidade acima do estoque também é recusada. A conta é feita em `Decimal`.
+   A mesma ideia vale para `detalhar_produto`: num teste com "mouses" (que a DummyJSON não tem), o
+   modelo chutava ids (1 a 5, depois 101 a 104) para "explorar" o catálogo, mesmo com o prompt
+   proibindo. Então a regra foi para o código: id que não veio de uma busca é recusado antes de chegar
+   ao catálogo, e o modelo recebe o motivo e segue.
 3. **Cada falha tem nome e mensagem própria.** O servidor MCP transforma timeout (5 s) ou erro da
    DummyJSON em `CATALOGO_INDISPONIVEL`, que é diferente de "nada encontrado" (lista vazia). O backend
    responde 503 para catálogo ou MCP fora do ar, 502 para modelo fora ou resposta fora do formato e

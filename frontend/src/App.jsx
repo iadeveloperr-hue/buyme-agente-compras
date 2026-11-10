@@ -111,7 +111,7 @@ export default function App() {
         {msgs.map((m, i) => <Mensagem key={i} m={m} />)}
       </section>
       <form onSubmit={enviar}>
-        <input value={texto} onChange={(e) => setTexto(e.target.value)} placeholder="Ex.: 5 mouses até US$ 30 cada" />
+        <input value={texto} onChange={(e) => setTexto(e.target.value)} placeholder="Ex.: 4 relógios até US$ 150 cada" />
         <button disabled={ocupado || !texto.trim()}>{ocupado ? "Aguarde…" : "Enviar"}</button>
       </form>
     </main>

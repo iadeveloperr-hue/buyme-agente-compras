@@ -1,7 +1,7 @@
 from decimal import Decimal
 
 import pytest
-from agente import registrar_vistos
+from agente import id_sem_busca, registrar_vistos
 from validacao import EscolhaInvalida, montar_itens, total
 
 VISTOS = {78: {"id": 78, "titulo": "MacBook Pro 14", "preco_usd": 1999.99, "estoque": 24},
@@ -30,3 +30,9 @@ def test_registrar_vistos_le_lista_e_produto_unico():
     registrar_vistos('{"id": 2, "preco_usd": 20, "descricao": "x"}', vistos)
     registrar_vistos('texto que não é JSON', vistos)
     assert set(vistos) == {1, 2}
+
+
+def test_detalhar_id_que_nao_veio_de_busca_e_recusado():
+    assert "RECUSADO" in id_sem_busca("detalhar_produto", {"id": 101}, VISTOS)
+    assert id_sem_busca("detalhar_produto", {"id": 78}, VISTOS) is None
+    assert id_sem_busca("buscar_produtos", {"termo": "mouse"}, VISTOS) is None
