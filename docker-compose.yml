@@ -1,0 +1,32 @@
+services:
+  db:
+    image: postgres:16-alpine
+    env_file: .env
+    volumes:
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro   # cria as tabelas na primeira subida
+      - dados:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 3s
+      retries: 20
+
+  mcp-server:
+    build: ./mcp-server
+    environment:
+      DUMMYJSON_URL: ${DUMMYJSON_URL:-https://dummyjson.com}   # troque p/ simular falha
+      DUMMYJSON_TIMEOUT_S: "5"
+    ports: ["8001:8001"]
+
+  backend:
+    build: ./backend
+    env_file: .env
+    environment:
+      POSTGRES_HOST: db
+      MCP_URL: http://mcp-server:8001/mcp
+    depends_on:
+      db: { condition: service_healthy }
+      mcp-server: { condition: service_started }
+    ports: ["8000:8000"]
+
+volumes:
+  dados:
