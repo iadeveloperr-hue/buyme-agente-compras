@@ -75,3 +75,12 @@ async def test_dummyjson_fora_do_ar_vira_erro_claro():
     erro, _, texto = await chamar("buscar_produtos", {"termo": "laptop"})
     assert erro and "503" in texto
 
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_resposta_que_nao_e_json_vira_erro_claro():
+    respx.get(f"{DUMMYJSON_URL}/products/search").mock(
+        return_value=httpx.Response(200, text="<html>Bad Gateway</html>"))
+    erro, _, texto = await chamar("buscar_produtos", {"termo": "laptop"})
+    assert erro and "CATALOGO_INDISPONIVEL" in texto and "não é JSON" in texto

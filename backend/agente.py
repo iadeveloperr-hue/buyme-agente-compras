@@ -4,12 +4,15 @@ O código não decide a ordem das chamadas. Ele só (1) entrega ao modelo as fer
 que o servidor MCP anuncia, (2) executa as que o modelo pedir e (3) devolve o resultado,
 até o modelo responder com o JSON final."""
 import json
+import logging
 import os
 from dataclasses import dataclass, field
 
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
-from openai import AsyncOpenAI
+from openai import APIStatusError, AsyncOpenAI
+
+log = logging.getLogger("agente")
 
 MCP_URL = os.getenv("MCP_URL", "http://mcp-server:8001/mcp")
 MODELO = os.getenv("OPENROUTER_MODEL", "anthropic/claude-haiku-4.5")
@@ -52,6 +55,22 @@ class FalhaLLM(Exception):
     """Não deu para falar com o modelo (rede, chave, provedor)."""
 
 
+# O que cada resposta de erro da OpenRouter quer dizer para quem está operando o sistema.
+MOTIVO_HTTP_LLM = {
+    401: "a chave da OpenRouter é inválida ou expirou",
+    402: "a chave da OpenRouter está sem crédito",
+    403: "a chave da OpenRouter não tem permissão para este modelo",
+    404: "o modelo escolhido não está disponível para esta chave (ver OPENROUTER_MODEL)",
+    429: "limite de uso da OpenRouter atingido; espere um pouco",
+}
+
+
+def motivo_falha_llm(e: Exception) -> str:
+    if isinstance(e, APIStatusError):
+        return MOTIVO_HTTP_LLM.get(e.status_code, f"a OpenRouter respondeu {e.status_code}")
+    return f"sem resposta da OpenRouter ({type(e).__name__})"
+
+
 class RespostaInvalida(Exception):
     """O modelo respondeu, mas não no formato combinado, ou não concluiu."""
 
@@ -68,6 +87,9 @@ def registrar_vistos(conteudo: str, vistos: dict[int, dict]) -> None:
     try:
         dado = json.loads(conteudo)
     except json.JSONDecodeError:
+        # Não quebra a conversa, mas fica registrado: produto que não foi lido aqui
+        # depois aparece como ESCOLHA_INVALIDA, e o log mostra a origem.
+        log.warning("resultado de ferramenta que não é JSON: %.200s", conteudo)
         return
     lista = dado.get("result", dado) if isinstance(dado, dict) else dado
     for p in lista if isinstance(lista, list) else [lista]:
@@ -131,7 +153,9 @@ async def _executar(pedido: str) -> Resultado:
                     r = await llm.chat.completions.create(
                         model=MODELO, messages=msgs, tools=tools, temperature=0)
                 except Exception as e:
-                    raise FalhaLLM(f"falha ao chamar o modelo na OpenRouter ({type(e).__name__})") from e
+                    raise FalhaLLM(motivo_falha_llm(e)) from e
+                if not r.choices:
+                    raise FalhaLLM("a OpenRouter devolveu uma resposta vazia")
                 msg = r.choices[0].message
 
                 if not msg.tool_calls:  # o modelo decidiu que terminou
@@ -146,21 +170,31 @@ async def _executar(pedido: str) -> Resultado:
                         msgs.append({"role": "user", "content":
                                      "Responda agora APENAS com o JSON final no formato pedido."})
                         continue
-                    res.itens = final.get("itens") or []
-                    res.resposta = final.get("resposta", "")
+                    itens = final.get("itens") or []
+                    if not isinstance(itens, list):
+                        raise RespostaInvalida("o campo itens do JSON final não é uma lista")
+                    res.itens = itens
+                    res.resposta = str(final.get("resposta") or "").strip()
                     return res
 
                 msgs.append(msg.model_dump(exclude_none=True))
                 for call in msg.tool_calls:
-                    args = json.loads(call.function.arguments or "{}")
-                    recusa = id_sem_busca(call.function.name, args, res.vistos)
+                    try:
+                        args = json.loads(call.function.arguments or "{}")
+                    except json.JSONDecodeError:
+                        args, recusa = {}, "RECUSADO: argumentos da ferramenta não são um JSON válido."
+                    else:
+                        recusa = id_sem_busca(call.function.name, args, res.vistos)
                     if recusa:  # não chega ao catálogo; o modelo recebe o motivo e segue
+                        log.warning("%s(%s) %s", call.function.name, args, recusa)
                         res.ferramentas.append({"nome": call.function.name, "argumentos": args,
                                                 "erro": recusa})
                         msgs.append({"role": "tool", "tool_call_id": call.id, "content": recusa})
                         continue
                     out = await mcp.call_tool(call.function.name, args)
                     texto = "\n".join(c.text for c in out.content if hasattr(c, "text"))
+                    if out.isError:  # o modelo recebe o erro como resultado; o log também
+                        log.warning("ferramenta %s(%s) falhou: %s", call.function.name, args, texto)
                     if out.isError and "CATALOGO_INDISPONIVEL" in texto:
                         res.catalogo_indisponivel = True
                     if not out.isError:  # uma lista chega como um bloco de texto por produto

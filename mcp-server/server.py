@@ -1,4 +1,5 @@
 """Servidor MCP do catálogo: expõe a DummyJSON como ferramentas para o agente."""
+import logging
 import os
 
 import httpx
@@ -9,6 +10,13 @@ DUMMYJSON_URL = os.getenv("DUMMYJSON_URL", "https://dummyjson.com")
 TIMEOUT_S = float(os.getenv("DUMMYJSON_TIMEOUT_S", "5"))
 
 mcp = FastMCP("catalogo", host="0.0.0.0", port=int(os.getenv("PORT", "8001")))
+log = logging.getLogger("catalogo")
+
+
+def _falha(msg: str, causa: BaseException | None = None) -> ToolError:
+    """Toda falha vira ToolError com prefixo fixo (o backend lê o prefixo) e fica no log."""
+    log.warning(msg, exc_info=causa)
+    return ToolError(msg)
 
 
 def _resumo(p: dict) -> dict:
@@ -30,14 +38,17 @@ async def _get(path: str, params: dict | None = None) -> dict:
         async with httpx.AsyncClient(base_url=DUMMYJSON_URL, timeout=TIMEOUT_S) as client:
             resp = await client.get(path, params=params)
     except httpx.TimeoutException as e:
-        raise ToolError(f"CATALOGO_INDISPONIVEL: a DummyJSON não respondeu em {TIMEOUT_S:.0f}s") from e
+        raise _falha(f"CATALOGO_INDISPONIVEL: a DummyJSON não respondeu em {TIMEOUT_S:.0f}s") from e
     except httpx.HTTPError as e:
-        raise ToolError(f"CATALOGO_INDISPONIVEL: erro de conexão com a DummyJSON ({type(e).__name__})") from e
+        raise _falha(f"CATALOGO_INDISPONIVEL: erro de conexão com a DummyJSON ({type(e).__name__})", e) from e
     if resp.status_code == 404:
-        raise ToolError("PRODUTO_NAO_ENCONTRADO: não existe produto com esse id")
+        raise _falha(f"PRODUTO_NAO_ENCONTRADO: não existe produto em {path}")
     if resp.status_code >= 400:
-        raise ToolError(f"CATALOGO_INDISPONIVEL: a DummyJSON respondeu {resp.status_code}")
-    return resp.json()
+        raise _falha(f"CATALOGO_INDISPONIVEL: a DummyJSON respondeu {resp.status_code}")
+    try:
+        return resp.json()
+    except ValueError as e:  # ex.: página de erro em HTML de um proxy no caminho
+        raise _falha("CATALOGO_INDISPONIVEL: a DummyJSON respondeu algo que não é JSON") from e
 
 
 @mcp.tool()
@@ -62,4 +73,5 @@ async def detalhar_produto(id: int) -> dict:
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     mcp.run(transport="streamable-http")

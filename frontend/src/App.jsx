@@ -16,9 +16,20 @@ async function enviarPedido(pedido) {
     });
     const corpo = await r.json().catch(() => null);
     if (!r.ok) {
-      // O backend devolve {detail: {codigo, mensagem, ferramentas}} nos erros conhecidos.
+      // Todo erro do backend vem como {detail: {codigo, mensagem, ferramentas}}.
       const d = corpo?.detail;
-      return { erro: d?.mensagem || `O servidor respondeu ${r.status}.`, ferramentas: d?.ferramentas || [] };
+      if (d?.mensagem) return { erro: d.mensagem, codigo: d.codigo, ferramentas: d.ferramentas || [] };
+      // Sem esse formato, quem respondeu foi o nginx: o backend caiu ou não respondeu.
+      return {
+        erro: [502, 503, 504].includes(r.status)
+          ? "O backend está fora do ar ou não respondeu. Nenhuma requisição foi criada."
+          : `O servidor respondeu ${r.status} sem explicação. Nenhuma requisição foi criada.`,
+        codigo: `HTTP_${r.status}`, ferramentas: [],
+      };
+    }
+    if (!corpo || typeof corpo.atendido !== "boolean") {
+      return { erro: "O backend respondeu algo que não consegui ler.", codigo: "RESPOSTA_ILEGIVEL",
+               ferramentas: [] };
     }
     return corpo;
   } catch (e) {
@@ -26,6 +37,7 @@ async function enviarPedido(pedido) {
       erro: e.name === "AbortError"
         ? "O agente demorou demais para responder. Tente de novo."
         : "Não consegui falar com o backend. Ele está rodando?",
+      codigo: e.name === "AbortError" ? "TEMPO_ESGOTADO" : "SEM_CONEXAO",
       ferramentas: [],
     };
   } finally {
@@ -80,7 +92,8 @@ function Mensagem({ m }) {
   const r = m.resposta;
   return (
     <div className={`msg agente ${r.erro ? "erro" : ""}`}>
-      {r.erro ? <p>⚠️ {r.erro}</p> : <p>{r.resposta}</p>}
+      {r.erro ? <p>⚠️ {r.erro} {r.codigo && <code className="codigo">{r.codigo}</code>}</p>
+              : <p>{r.resposta}</p>}
       {r.requisicao && <Requisicao req={r.requisicao} />}
       {!r.erro && !r.atendido && <p className="aviso">Nenhuma requisição foi criada.</p>}
       <Ferramentas lista={r.ferramentas} />

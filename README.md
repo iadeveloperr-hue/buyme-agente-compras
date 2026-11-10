@@ -27,8 +27,8 @@ Se a chave estiver vazia ou expirada, o chat avisa isso em vez de travar.
 Testes (não precisam de chave de LLM nem de rede):
 
 ```bash
-cd mcp-server && pip install -r requirements-dev.txt && pytest -q   # 6 testes das ferramentas
-cd backend    && pip install -r requirements-dev.txt && pytest -q   # 4 testes das regras
+cd mcp-server && pip install -r requirements-dev.txt && pytest -q   # 7 testes das ferramentas
+cd backend    && pip install -r requirements-dev.txt && pytest -q   # 18 testes: regras e erros
 python scripts/avaliar.py      # com o ambiente no ar: 5 pedidos de teste, mostra os acertos
 ```
 
@@ -47,11 +47,8 @@ python scripts/avaliar.py      # com o ambiente no ar: 5 pedidos de teste, mostr
    modelo chutava ids (1 a 5, depois 101 a 104) para "explorar" o catálogo, mesmo com o prompt
    proibindo. Então a regra foi para o código: id que não veio de uma busca é recusado antes de chegar
    ao catálogo, e o modelo recebe o motivo e segue.
-3. **Cada falha tem nome e mensagem própria.** O servidor MCP transforma timeout (5 s) ou erro da
-   DummyJSON em `CATALOGO_INDISPONIVEL`, que é diferente de "nada encontrado" (lista vazia). O backend
-   responde 503 para catálogo ou MCP fora do ar, 502 para modelo fora ou resposta fora do formato e
-   422 para escolha que não confere. O chat mostra a mensagem e diz que nada foi gravado.
-   Para ver a falha acontecendo: `DUMMYJSON_URL=http://10.255.255.1 docker compose up -d mcp-server`.
+3. **Nenhum erro silencioso.** Cada falha tem um código, uma mensagem para a pessoa e uma linha no
+   log, como mostra a seção [Tratamento de erros](#tratamento-de-erros) logo abaixo.
 4. **Modelo `anthropic/claude-haiku-4.5`.** A chave do case tem um guardrail de *Zero Data Retention*
    na OpenRouter, e ele recusa o `gpt-4o-mini` e o Gemini. Testei quais modelos passam
    ([scripts/testar_modelos.py](scripts/testar_modelos.py)): Claude Haiku/Sonnet 4.5, GPT-4.1-mini e
@@ -63,6 +60,48 @@ python scripts/avaliar.py      # com o ambiente no ar: 5 pedidos de teste, mostr
    transação (requisição e itens juntos ou nada).
 6. **Testes das ferramentas pelo protocolo MCP de verdade**, com um cliente em memória e a DummyJSON
    simulada (`respx`): cobrem resultado, lista vazia, produto inexistente, timeout e erro 503.
+
+## Tratamento de erros
+
+Regra do projeto: **toda falha devolve algo**. Isso quer dizer um código fixo, uma mensagem que
+diz o que aconteceu e se algo foi gravado, e uma linha no log (`docker compose logs backend
+mcp-server`). Todo erro do backend tem o mesmo formato, que o chat sabe ler:
+
+```json
+{"detail": {"codigo": "CATALOGO_INDISPONIVEL", "mensagem": "...", "ferramentas": [...]}}
+```
+
+| O que falhou | Código | HTTP | O que a pessoa vê no chat |
+|---|---|---|---|
+| DummyJSON lenta (> 5 s), fora do ar, erro 5xx ou resposta que não é JSON | `CATALOGO_INDISPONIVEL` | 503 | "O catálogo está fora do ar ou lento. Nenhuma requisição foi criada." |
+| Servidor MCP fora do ar ou caiu no meio | `FERRAMENTAS_INDISPONIVEIS` | 503 | "O serviço de catálogo (MCP) não respondeu." |
+| Chave ausente, inválida/expirada (401), sem crédito (402), modelo bloqueado (403/404), limite (429) | `LLM_INDISPONIVEL` | 502 | o motivo exato, por exemplo "a chave da OpenRouter é inválida ou expirou" |
+| Modelo não devolveu o JSON final, mesmo depois de uma segunda chance, ou não concluiu em 8 passos | `RESPOSTA_INVALIDA` | 502 | "O agente não conseguiu concluir o pedido. Tente reformular." |
+| Agente passou de 100 s no total | `TEMPO_ESGOTADO` | 504 | "O agente não concluiu em 100 s." |
+| Modelo escolheu id que não veio do catálogo, quantidade acima do estoque ou item mal formado | `ESCOLHA_INVALIDA` | 422 | o motivo, por exemplo "pedido 3, estoque 2" |
+| Postgres fora do ar ao gravar ou listar | `BANCO_INDISPONIVEL` | 503 | "Nada foi salvo." (a gravação é uma transação: requisição e itens juntos, ou nada) |
+| Pedido vazio ou com mais de 1000 caracteres | `PEDIDO_INVALIDO` | 422 | "Escreva o pedido com 3 a 1000 caracteres." |
+| Qualquer erro não previsto | `ERRO_INTERNO` | 500 | "Erro inesperado no servidor." (o stack completo vai para o log) |
+| Backend caiu (o nginx responde no lugar dele) ou o navegador perdeu a conexão | `HTTP_502`, `SEM_CONEXAO` | — | "O backend está fora do ar ou não respondeu." |
+
+Também é registrado, sem interromper a conversa, o que o modelo pode corrigir sozinho. Isso vale
+para produto não encontrado, `detalhar_produto` com id que não veio de uma busca e argumentos de
+ferramenta mal formados. Em todos esses casos, o modelo recebe o motivo como resultado da
+ferramenta, tenta de novo, e a chamada aparece marcada em vermelho na lista "Ferramentas chamadas".
+
+"Nada encontrado" **não** é erro: a busca devolve lista vazia, o agente diz que o catálogo não tem
+o item e responde 201 com `atendido: false`. Se o modelo não escrever o motivo, o backend escreve um
+texto padrão, para a resposta nunca ficar em branco.
+
+Cada linha da tabela tem um teste ([backend/tests/test_erros.py](backend/tests/test_erros.py) e
+[mcp-server/tests/test_tools.py](mcp-server/tests/test_tools.py)). Para ver a falha do catálogo
+acontecendo no ambiente:
+
+```bash
+DUMMYJSON_URL=http://10.255.255.1 docker compose up -d mcp-server   # IP que não responde
+# envie um pedido no chat; depois volte ao normal:
+docker compose up -d mcp-server
+```
 
 Também entraram três dos itens opcionais: o chat mostra as ferramentas chamadas, há um script de
 avaliação com 5 pedidos (5/5 na última execução) e um CI com lint e testes

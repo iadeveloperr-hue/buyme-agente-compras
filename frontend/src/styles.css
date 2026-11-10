@@ -15,6 +15,7 @@ h1 { margin: 0; font-size: 22px; }
 .carregando { color: var(--suave); font-style: italic; }
 .erro { background: var(--erro-fundo); border-color: #fecdca; color: var(--erro); }
 .aviso { color: var(--suave); font-size: 13px; }
+.codigo { font-size: 11px; opacity: .75; margin-left: 4px; }
 .numero { font-weight: 600; margin-bottom: 6px; }
 table { width: 100%; border-collapse: collapse; font-size: 14px; }
 th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--borda); }

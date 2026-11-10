@@ -27,8 +27,11 @@ def montar_itens(escolhidos: list[dict], vistos: dict[int, dict]) -> list[Item]:
     vistos: produtos que as ferramentas realmente devolveram nesta conversa, por id."""
     itens = []
     for e in escolhidos:
-        pid = int(e["produto_id"])
-        qtd = int(e["quantidade"])
+        try:
+            pid = int(e["produto_id"])
+            qtd = int(e["quantidade"])
+        except (KeyError, TypeError, ValueError):
+            raise EscolhaInvalida(f"item mal formado na resposta do agente: {e!r}") from None
         p = vistos.get(pid)
         if p is None:
             raise EscolhaInvalida(f"produto {pid} não veio do catálogo nesta busca")
