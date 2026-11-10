@@ -1,7 +1,6 @@
 from decimal import Decimal
 
 import pytest
-
 from agente import registrar_vistos
 from validacao import EscolhaInvalida, montar_itens, total
 

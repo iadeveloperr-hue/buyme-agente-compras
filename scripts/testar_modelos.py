@@ -7,8 +7,10 @@ import sys
 from openai import OpenAI
 
 cli = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=os.environ["OPENROUTER_API_KEY"], timeout=60)
-TOOL = [{"type": "function", "function": {"name": "buscar_produtos", "description": "busca",
-         "parameters": {"type": "object", "properties": {"termo": {"type": "string"}}, "required": ["termo"]}}}]
+TOOL = [{"type": "function", "function": {
+         "name": "buscar_produtos", "description": "busca",
+         "parameters": {"type": "object", "properties": {"termo": {"type": "string"}},
+                        "required": ["termo"]}}}]
 
 for modelo in sys.argv[1:]:
     try:

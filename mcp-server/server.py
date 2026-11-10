@@ -29,10 +29,10 @@ async def _get(path: str, params: dict | None = None) -> dict:
     try:
         async with httpx.AsyncClient(base_url=DUMMYJSON_URL, timeout=TIMEOUT_S) as client:
             resp = await client.get(path, params=params)
-    except httpx.TimeoutException:
-        raise ToolError(f"CATALOGO_INDISPONIVEL: a DummyJSON não respondeu em {TIMEOUT_S:.0f}s")
+    except httpx.TimeoutException as e:
+        raise ToolError(f"CATALOGO_INDISPONIVEL: a DummyJSON não respondeu em {TIMEOUT_S:.0f}s") from e
     except httpx.HTTPError as e:
-        raise ToolError(f"CATALOGO_INDISPONIVEL: erro de conexão com a DummyJSON ({type(e).__name__})")
+        raise ToolError(f"CATALOGO_INDISPONIVEL: erro de conexão com a DummyJSON ({type(e).__name__})") from e
     if resp.status_code == 404:
         raise ToolError("PRODUTO_NAO_ENCONTRADO: não existe produto com esse id")
     if resp.status_code >= 400:

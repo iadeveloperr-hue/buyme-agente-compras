@@ -119,7 +119,7 @@ async def _executar(pedido: str) -> Resultado:
                         final = extrair_json(msg.content or "")
                     except ValueError:  # JSONDecodeError é subclasse de ValueError
                         if pediu_formato:
-                            raise RespostaInvalida("o modelo não devolveu o JSON final")
+                            raise RespostaInvalida("o modelo não devolveu o JSON final") from None
                         # Uma segunda chance: às vezes ele conclui em texto livre.
                         pediu_formato = True
                         msgs.append({"role": "assistant", "content": msg.content or ""})

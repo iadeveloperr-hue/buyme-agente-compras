@@ -1,11 +1,10 @@
 import os
 from contextlib import asynccontextmanager
 
+import agente
 import asyncpg
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
-
-import agente
 from validacao import EscolhaInvalida, montar_itens, total
 
 DB_URL = (f"postgresql://{os.getenv('POSTGRES_USER')}:{os.getenv('POSTGRES_PASSWORD')}"

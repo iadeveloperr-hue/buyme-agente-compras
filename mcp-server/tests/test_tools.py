@@ -6,7 +6,6 @@ import httpx
 import pytest
 import respx
 from mcp.shared.memory import create_connected_server_and_client_session
-
 from server import DUMMYJSON_URL, mcp
 
 LAPTOP = {"id": 78, "title": "Apple MacBook Pro 14 Inch Space Grey", "brand": "Apple",
