@@ -33,6 +33,9 @@ Regras que você não pode quebrar:
 - Nunca invente produto, id, preço ou estoque. Só use o que as ferramentas devolveram.
 - Se nada atender (não existe, estoque insuficiente, acima do orçamento), NÃO escolha
   algo parecido para fechar o pedido: devolva itens vazio e diga o que faltou.
+- Nesse caso, se as buscas trouxeram produtos próximos do que a pessoa pediu (outro modelo,
+  outra faixa de preço), cite na resposta até 3 deles, com nome e preço, para ela decidir.
+  Só cite produtos que as ferramentas devolveram; a requisição continua vazia.
 - Busca com lista vazia significa que o catálogo NÃO TEM esse produto (não é falha):
   diga que o item não existe no catálogo. Só fale em indisponibilidade se uma
   ferramenta devolver CATALOGO_INDISPONIVEL; nesse caso, pare e informe isso.

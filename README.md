@@ -31,7 +31,7 @@ Testes (não precisam de chave de LLM nem de rede):
 ```bash
 cd mcp-server && pip install -r requirements-dev.txt && pytest -q   # 7 testes das ferramentas
 cd backend    && pip install -r requirements-dev.txt && pytest -q   # 18 testes: regras e erros
-python scripts/avaliar.py      # com o ambiente no ar: 5 pedidos de teste, mostra os acertos
+python scripts/avaliar.py      # com o ambiente no ar: 6 pedidos de teste, mostra os acertos
 ```
 
 ## Principais decisões
@@ -49,6 +49,9 @@ python scripts/avaliar.py      # com o ambiente no ar: 5 pedidos de teste, mostr
    modelo chutava ids (1 a 5, depois 101 a 104) para "explorar" o catálogo, mesmo com o prompt
    proibindo. Então a regra foi para o código: id que não veio de uma busca é recusado antes de chegar
    ao catálogo, e o modelo recebe o motivo e segue.
+   Quando nada atende mas a busca trouxe parecidos, o agente **cita até 3 alternativas reais**
+   com preço ("iPhone 19 não existe; há iPhone 13 Pro por US$ 1.099,99...") e não cria requisição:
+   a pessoa decide. O `avaliar.py` confere que os nomes citados existem no catálogo.
 3. **Nenhum erro silencioso.** Cada falha tem um código, uma mensagem para a pessoa e uma linha no
    log, como mostra a seção [Tratamento de erros](#tratamento-de-erros) logo abaixo.
 4. **Modelo `anthropic/claude-haiku-4.5`.** A chave do case tem um guardrail de *Zero Data Retention*
@@ -106,7 +109,7 @@ docker compose up -d mcp-server
 ```
 
 Também entraram três dos itens opcionais: o chat mostra as ferramentas chamadas, há um script de
-avaliação com 5 pedidos (5/5 na última execução) e um CI com lint e testes
+avaliação com 6 pedidos (6/6 na última execução) e um CI com lint e testes
 ([.github/workflows/ci.yml](.github/workflows/ci.yml)).
 
 **Limites conhecidos:** a DummyJSON tem cerca de 190 produtos e a busca é por palavra em inglês. O
@@ -127,5 +130,5 @@ no dia a dia:
   - o cliente MCP embrulhando erros num `ExceptionGroup`, o que mascarava a causa real;
   - o resultado em lista do MCP chegando como um bloco por produto. Isso fez a trava anti-invenção
     recusar um produto legítimo, e corrigi a leitura, não a trava.
-- O script `avaliar.py` é a forma de checar o agente sem confiar só na impressão: cinco pedidos com
-  resultado esperado, incluindo dois que **não** devem ser atendidos.
+- O script `avaliar.py` é a forma de checar o agente sem confiar só na impressão: seis pedidos com
+  resultado esperado, incluindo três que **não** devem ser atendidos.
