@@ -52,13 +52,16 @@ Abra **http://localhost:3000** e envie o pedido de exemplo, que já vem preenchi
 | `mcp-server` | interna | servidor MCP com `buscar_produtos(termo)` e `detalhar_produto(id)` |
 | `db` | interna | Postgres 16; as tabelas nascem do [db/init.sql](db/init.sql) na primeira subida |
 
-O backend só sobe depois que o Postgres responde ao *healthcheck*. As peças se encontram pelo
-nome na rede interna do Compose (`db`, `mcp-server`, `backend`).
+O backend só sobe depois que o Postgres responde ao *healthcheck*, que é feito por TCP de
+propósito. Na primeira subida, o Postgres roda um servidor temporário, só no socket local,
+enquanto cria as tabelas, e um healthcheck pelo socket diria "pronto" cedo demais. Como segunda
+proteção, o backend ainda tenta conectar por até 10 s, registrando cada tentativa no log. As peças
+se encontram pelo nome na rede interna do Compose (`db`, `mcp-server`, `backend`).
 
 ### Testes
 
 ```bash
-cd mcp-server && pip install -r requirements-dev.txt && pytest -q   # 7 testes das ferramentas
+cd mcp-server && pip install -r requirements-dev.txt && pytest -q   # 8 testes das ferramentas
 cd backend    && pip install -r requirements-dev.txt && pytest -q   # 18 testes: regras e erros
 python scripts/avaliar.py    # com o ambiente no ar: 6 pedidos de teste, mostra os acertos
 ```

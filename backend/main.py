@@ -30,10 +30,24 @@ ERROS_MCP = (httpx.HTTPError, McpError, OSError)
 ERROS_BANCO = (asyncpg.PostgresError, asyncpg.InterfaceError, OSError)
 
 
+TENTATIVAS_BANCO = 10
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Se o banco não sobe, o backend não sobe: falha alta no log do container, não silenciosa.
-    app.state.pool = await asyncpg.create_pool(DB_URL, min_size=1, max_size=5)
+    # O healthcheck do compose já espera o Postgres; isto é a segunda proteção, para o caso de
+    # o banco ainda estar terminando de subir. Cada tentativa vai para o log; se as 10 falharem,
+    # o backend não sobe e o erro fica no log do container: falha alta, não silenciosa.
+    for tentativa in range(1, TENTATIVAS_BANCO + 1):
+        try:
+            app.state.pool = await asyncpg.create_pool(DB_URL, min_size=1, max_size=5)
+            break
+        except ERROS_BANCO as e:
+            if tentativa == TENTATIVAS_BANCO:
+                raise
+            log.warning("Postgres ainda não aceita conexão (tentativa %s/%s): %s",
+                        tentativa, TENTATIVAS_BANCO, e)
+            await asyncio.sleep(1)
     yield
     await app.state.pool.close()
 

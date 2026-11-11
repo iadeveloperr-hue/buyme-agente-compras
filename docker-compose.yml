@@ -6,7 +6,10 @@ services:
       - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro   # cria as tabelas na primeira subida
       - dados:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      # -h 127.0.0.1 (TCP) de propósito: na primeira subida o Postgres roda um servidor
+      # temporário só no socket local enquanto cria as tabelas. Sem o -h, o healthcheck
+      # diria "pronto" nessa janela e o backend tentaria conectar antes da hora.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 3s
       retries: 20
 
