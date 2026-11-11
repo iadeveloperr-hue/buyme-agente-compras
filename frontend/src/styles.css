@@ -28,3 +28,4 @@ form { position: fixed; bottom: 0; left: 0; right: 0; display: flex; gap: 8px; p
 input { flex: 1; max-width: 640px; padding: 10px 12px; border: 1px solid var(--borda); border-radius: 8px; font: inherit; }
 button { padding: 10px 18px; border: 0; border-radius: 8px; background: var(--marca); color: #fff; font: inherit; cursor: pointer; }
 button:disabled { opacity: .5; cursor: default; }
+.tag { font-size: 14px; font-weight: 400; color: var(--suave); margin-left: 6px; }

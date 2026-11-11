@@ -1,4 +1,6 @@
-# Agente de compras
+# BuyME: agente de compras
+
+*Buy* + *ME*: o agente de compras pensado para o dia a dia da Mercado Eletrônico.
 
 A pessoa escreve o que precisa num chat ("Preciso de 3 laptops para o time de vendas, até US$ 2.000 cada.")
 e o agente busca no catálogo da [DummyJSON](https://dummyjson.com/docs/products) por um servidor MCP,

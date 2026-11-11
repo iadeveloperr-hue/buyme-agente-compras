@@ -118,7 +118,7 @@ export default function App() {
 
   return (
     <main>
-      <h1>Agente de compras</h1>
+      <h1>BuyME <span className="tag">agente de compras</span></h1>
       <p className="sub">Descreva o que precisa. O agente busca no catálogo e monta a requisição.</p>
       <section className="conversa">
         {msgs.map((m, i) => <Mensagem key={i} m={m} />)}

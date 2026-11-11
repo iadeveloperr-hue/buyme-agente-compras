@@ -38,7 +38,7 @@ async def lifespan(app: FastAPI):
     await app.state.pool.close()
 
 
-app = FastAPI(title="Agente de compras", lifespan=lifespan)
+app = FastAPI(title="BuyME · agente de compras", lifespan=lifespan)
 
 
 @app.exception_handler(RequestValidationError)
