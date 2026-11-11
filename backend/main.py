@@ -12,7 +12,13 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from mcp.shared.exceptions import McpError
 from pydantic import BaseModel, Field
-from validacao import EscolhaInvalida, montar_itens, total
+from validacao import (
+    EscolhaInvalida,
+    conferir_moeda_do_pedido,
+    conferir_orcamento,
+    montar_itens,
+    total,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("agente")
@@ -111,8 +117,10 @@ async def criar(p: Pedido):
         return {"requisicao": None, "atendido": False, "ferramentas": r.ferramentas,
                 "resposta": r.resposta or "Não encontrei no catálogo nada que atenda a este pedido."}
 
-    try:
+    try:  # tudo o que envolve dinheiro é conferido aqui, não pelo modelo (validacao.py)
+        conferir_moeda_do_pedido(p.pedido)
         itens = montar_itens(r.itens, r.vistos)
+        conferir_orcamento(itens, r.orcamento)
     except EscolhaInvalida as e:
         raise erro(422, "ESCOLHA_INVALIDA", f"O agente escolheu algo que não confere com o catálogo "
                    f"({e}). Nenhuma requisição foi criada.", r.ferramentas) from e
