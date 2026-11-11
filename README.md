@@ -6,6 +6,19 @@ A pessoa escreve o que precisa num chat. O agente busca no catálogo da DummyJSO
 MCP, escolhe os itens e salva uma requisição de compra no Postgres. Se nada atende, diz o que
 faltou, sugere o que existe e não cria requisição.
 
+## Como funciona
+
+1. A pessoa escreve o pedido no chat (React), que o envia para `POST /requisicoes` no backend.
+2. O backend chama o modelo (Claude Haiku 4.5, pela OpenRouter) com as ferramentas que o
+   servidor MCP anuncia.
+3. O modelo decide o que fazer: busca no catálogo (`buscar_produtos`), detalha um item
+   (`detalhar_produto`) e repete até ter o que precisa. O servidor MCP consulta a DummyJSON.
+4. O modelo responde com os itens escolhidos (id e quantidade) e o orçamento que leu no pedido.
+5. O backend confere o que envolve dinheiro contra o catálogo: preço, estoque, pedido mínimo e
+   orçamento. Se algo não confere, o modelo recebe o motivo e corrige uma vez.
+6. Com tudo certo, a requisição e os itens são gravados juntos no Postgres, e o chat mostra o
+   número, os itens e o total. Se nada atende, o chat explica o que faltou e nada é gravado.
+
 ## Como rodar
 
 Precisa de Docker com o Compose.
@@ -116,6 +129,31 @@ A última execução deu 8/8.
   ([scripts/testar_modelos.py](scripts/testar_modelos.py)). O Haiku 4.5 é rápido e passa na
   avaliação e na bateria de QA. A comparação com o Haiku 5.5 está em [Custo](#custo).
 
+### O catálogo: o que usamos e o que sabemos
+
+Analisei os 194 produtos da DummyJSON e os 22 campos de cada um. O agente usa preço, estoque e
+pedido mínimo. O resto foi decidido assim:
+
+- **Desconto: sabemos que existe e, de propósito, não aplicamos.** Todo produto tem
+  `discountPercentage`, de 0,04% a 19,6% (cerca de 10% em média), e o carrinho da própria
+  DummyJSON aplica esse desconto na compra. A requisição usa o preço de lista (`price`), sem
+  desconto. Isso tem dois efeitos: o total pode sair acima do que seria cobrado, e um item que
+  caberia no orçamento com desconto pode ser recusado. É o lado conservador. Qual preço vale para
+  a compra (de lista, com desconto ou negociado com o fornecedor) é uma decisão de negócio do
+  cliente. Com ela definida, a mudança é pequena: trazer o desconto na busca e calcular o preço
+  em `backend/validacao.py`.
+- **Prazo de envio** (`shippingInformation`, de "Ships overnight" a "Ships in 1 month"): ainda não
+  é considerado. Num pedido com prazo ("preciso até sexta"), o agente pode escolher um item que
+  chega tarde.
+- **Garantia e devolução** (`warrantyInformation`, `returnPolicy`): 12 produtos não têm garantia e
+  44 não aceitam devolução. Não viraram regra porque dependem da política de compras do cliente
+  (ex.: "eletrônico só com 1 ano de garantia"). Com a política, viram mais uma conferência no
+  código.
+- **Produtos impossíveis de comprar:** 17 têm estoque menor que o pedido mínimo (ex.: ovos, com
+  estoque 9 e mínimo 32), e 8 deles aparecem no catálogo como "In Stock". O agente não depende
+  desse status: as regras de estoque e de mínimo, juntas, recusam esses itens sem nenhuma regra
+  especial.
+
 ### Bateria de QA
 
 [scripts/qa_riscos.py](scripts/qa_riscos.py) simula um QA de compras: cada cenário é um erro que
@@ -204,6 +242,8 @@ suba de novo.
   incluir num novo pedido, em vez de fazer uma pergunta que a pessoa não teria como responder.
 - **Orçamento:** o código confere a escolha contra o limite que o modelo leu no pedido. Se o modelo
   ler errado (ex.: "US$ 150 cada" como total), o erro tende ao lado seguro, que é recusar.
+- **Preço de lista e prazo de envio:** o desconto do catálogo não é aplicado e o prazo de envio
+  não é considerado. Ver [O catálogo](#o-catálogo-o-que-usamos-e-o-que-sabemos).
 - **Sem conversão de moeda**, sem reserva de estoque (o estoque é conferido na hora do pedido, não
   reservado) e sem autenticação.
 - **Busca por palavra em inglês:** um item que existe com outro nome pode não ser achado.
