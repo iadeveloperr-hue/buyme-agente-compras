@@ -30,7 +30,7 @@ async def test_buscar_produtos_resume_resultado():
     assert not erro
     item = dados["result"][0]
     assert item == {"id": 78, "titulo": LAPTOP["title"], "marca": "Apple",
-                    "categoria": "laptops", "preco_usd": 1999.99, "estoque": 24}
+                    "categoria": "laptops", "preco_usd": 1999.99, "estoque": 24, "pedido_minimo": 1}
 
 
 @pytest.mark.asyncio
@@ -60,6 +60,7 @@ async def test_detalhar_produto():
     dados = json.loads(texto)
     assert not erro
     assert dados["garantia"] == "1 year" and dados["preco_usd"] == 1999.99
+    assert dados["pedido_minimo"] == 1
 
 
 @pytest.mark.asyncio
