@@ -1,10 +1,11 @@
 """Envia um pedido ao backend e imprime a resposta. Uso: python scripts/pedir.py "texto do pedido" """
 import json
+import os
 import sys
 import urllib.error
 import urllib.request
 
-URL = "http://localhost:8000/requisicoes"
+URL = os.getenv("API_URL", "http://localhost:8000") + "/requisicoes"  # outra porta: defina API_URL
 
 pedido = " ".join(sys.argv[1:]) or "Preciso de 3 laptops para o time de vendas, até US$ 2.000 cada."
 req = urllib.request.Request(URL, data=json.dumps({"pedido": pedido}).encode(),

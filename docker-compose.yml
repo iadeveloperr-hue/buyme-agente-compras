@@ -15,7 +15,7 @@ services:
     environment:
       DUMMYJSON_URL: ${DUMMYJSON_URL:-https://dummyjson.com}   # troque p/ simular falha
       DUMMYJSON_TIMEOUT_S: "5"
-    ports: ["8001:8001"]
+    # Sem porta publicada: só o backend fala com ele, pela rede interna do Compose.
 
   backend:
     build: ./backend
@@ -26,12 +26,12 @@ services:
     depends_on:
       db: { condition: service_healthy }
       mcp-server: { condition: service_started }
-    ports: ["8000:8000"]
+    ports: ["${API_PORT:-8000}:8000"]   # API; troque no .env se a porta estiver em uso
 
   frontend:
     build: ./frontend
     depends_on: [backend]
-    ports: ["3000:80"]   # chat em http://localhost:3000
+    ports: ["${CHAT_PORT:-3000}:80"]    # chat; troque no .env se a porta estiver em uso
 
 volumes:
   dados:

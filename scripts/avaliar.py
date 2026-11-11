@@ -5,11 +5,12 @@ total, o teto de preço unitário e, quando não atende, se sugeriu produtos rea
 Uso: python scripts/avaliar.py
 Atenção: os casos atendidos gravam requisições de verdade no banco."""
 import json
+import os
 import sys
 import urllib.error
 import urllib.request
 
-URL = "http://localhost:8000/requisicoes"
+URL = os.getenv("API_URL", "http://localhost:8000") + "/requisicoes"  # outra porta: defina API_URL
 
 CASOS = [
     {"pedido": "Preciso de 3 laptops para o time de vendas, até US$ 2.000 cada.",
