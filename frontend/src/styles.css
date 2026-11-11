@@ -36,3 +36,14 @@ button:disabled { opacity: .5; cursor: default; }
 .cotacao span { color: var(--suave); }
 .cotacao.indisponivel { color: var(--suave); }
 td.envio, thead th:nth-child(4) { text-align: center; white-space: normal; }
+.secundario { background: transparent; color: var(--marca); border: 1px solid var(--borda); }
+.salvas { margin: 0 0 16px; font-size: 14px; }
+.salvas summary { cursor: pointer; color: var(--suave); }
+.salvas ul { margin: 8px 0 0; padding-left: 18px; }
+.salvas li { margin: 2px 0; }
+.alternativas { margin-top: 10px; font-size: 14px; }
+.alternativas .titulo { font-weight: 600; margin-bottom: 4px; }
+.alternativas ul { margin: 0; padding-left: 18px; }
+.alternativas .dif { color: var(--suave); }
+.alternativas .aviso { margin: 4px 0 0; }
+@media (max-width: 520px) { .secundario { padding: 10px; font-size: 13px; } }

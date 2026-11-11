@@ -62,6 +62,7 @@ async def test_detalhar_produto():
     assert not erro
     assert dados["garantia"] == "1 year" and dados["preco_usd"] == 1999.99
     assert dados["pedido_minimo"] == 1
+    assert "avaliacao" not in dados  # a nota do catálogo contradiz as avaliações; não é usada
 
 
 @pytest.mark.asyncio

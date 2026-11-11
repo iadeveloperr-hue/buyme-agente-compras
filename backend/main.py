@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
+from typing import Literal
 
 import agente
 import asyncpg
@@ -15,7 +16,9 @@ from mcp.shared.exceptions import McpError
 from pydantic import BaseModel, Field
 from validacao import (
     EscolhaInvalida,
-    conferir_moeda_do_pedido,
+    alternativas,
+    citou_valor_em_dolar,
+    conferir_moeda_da_conversa,
     conferir_orcamento,
     montar_itens,
     total,
@@ -65,9 +68,11 @@ app = FastAPI(title="BuyME · agente de compras", lifespan=lifespan)
 @app.exception_handler(RequestValidationError)
 async def pedido_invalido(_: Request, exc: RequestValidationError):
     log.warning("PEDIDO_INVALIDO: %s", exc.errors())
+    no_historico = any(len(e.get("loc", ())) > 1 and e["loc"][1] == "historico" for e in exc.errors())
+    mensagem = ("O histórico da conversa veio num formato inválido. Comece uma nova conversa."
+                if no_historico else "Escreva o pedido com 3 a 1000 caracteres.")
     return JSONResponse(status_code=422, content={"detail": {
-        "codigo": "PEDIDO_INVALIDO",
-        "mensagem": "Escreva o pedido com 3 a 1000 caracteres.", "ferramentas": []}})
+        "codigo": "PEDIDO_INVALIDO", "mensagem": mensagem, "ferramentas": []}})
 
 
 @app.exception_handler(Exception)
@@ -80,8 +85,16 @@ async def erro_inesperado(_: Request, exc: Exception):
         "ferramentas": []}})
 
 
+class Turno(BaseModel):
+    autor: Literal["pessoa", "agente"]
+    texto: str = Field(min_length=1, max_length=4000)
+
+
 class Pedido(BaseModel):
     pedido: str = Field(min_length=3, max_length=1000)
+    # A conversa anterior, enviada pelo chat. É só contexto para o modelo: preço, estoque,
+    # pedido mínimo e moeda continuam conferidos aqui, contra o catálogo.
+    historico: list[Turno] = Field(default_factory=list, max_length=20)
 
 
 def _item_json(i) -> dict:
@@ -92,9 +105,11 @@ def _item_json(i) -> dict:
 
 @app.post("/requisicoes", status_code=201)
 async def criar(p: Pedido):
+    historico = [t.model_dump() for t in p.historico][-agente.MAX_HISTORICO:]
+    da_pessoa = agente.mensagens_da_pessoa(p.pedido, historico)
     try:
         async with asyncio.timeout(AGENTE_TIMEOUT_S):
-            r = await agente.executar(p.pedido)
+            r = await agente.executar(p.pedido, historico)
     except TimeoutError as e:
         raise erro(504, "TEMPO_ESGOTADO", f"O agente não concluiu em {AGENTE_TIMEOUT_S:.0f} s. "
                    "Nenhuma requisição foi criada; tente de novo.", causa=e) from e
@@ -120,7 +135,7 @@ async def criar(p: Pedido):
                 "resposta": r.resposta or "Não encontrei no catálogo nada que atenda a este pedido."}
 
     try:  # tudo o que envolve dinheiro é conferido aqui, não pelo modelo (validacao.py)
-        conferir_moeda_do_pedido(p.pedido)
+        conferir_moeda_da_conversa(da_pessoa)
         itens = montar_itens(r.itens, r.vistos)
         conferir_orcamento(itens, r.orcamento)
     except EscolhaInvalida as e:
@@ -132,7 +147,7 @@ async def criar(p: Pedido):
         async with app.state.pool.acquire() as con, con.transaction():
             req_id = await con.fetchval(
                 "INSERT INTO requisicoes (pedido, resumo, total_usd) VALUES ($1, $2, $3) RETURNING id",
-                p.pedido, r.resposta, valor)
+                "\n".join(da_pessoa), r.resposta, valor)  # numa conversa, tudo o que a pessoa pediu
             await con.executemany(
                 "INSERT INTO requisicao_itens (requisicao_id, produto_id, titulo, quantidade,"
                 " preco_unitario_usd, subtotal_usd, prazo_envio) VALUES ($1, $2, $3, $4, $5, $6, $7)",
@@ -143,9 +158,17 @@ async def criar(p: Pedido):
                    "no banco. Nada foi salvo; tente de novo.", r.ferramentas, causa=e) from e
 
     log.info("requisição %s criada: %s itens, US$ %s", req_id, len(itens), valor)
+    # As opções que também cabem são montadas pelo código a partir do catálogo. Se a pessoa deu
+    # valor em dólar mas o limite não chegou ao JSON (limites diferentes por item), a lista sairia
+    # sem teto (um Rolex de US$ 16 mil "cabendo" em relógios até US$ 150): nesse caso, não sai.
+    orc = r.orcamento if isinstance(r.orcamento, dict) else {}
+    limite_conhecido = bool(orc.get("max_unitario") or orc.get("max_total"))
+    opcoes = (alternativas(itens, r.vistos, r.orcamento)
+              if limite_conhecido or not citou_valor_em_dolar(da_pessoa) else [])
     return {"requisicao": {"id": req_id, "total_usd": float(valor),
                            "itens": [_item_json(i) for i in itens]},
-            "atendido": True, "resposta": r.resposta, "ferramentas": r.ferramentas}
+            "atendido": True, "resposta": r.resposta, "ferramentas": r.ferramentas,
+            "alternativas": opcoes}
 
 
 @app.get("/requisicoes")

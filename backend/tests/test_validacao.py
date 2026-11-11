@@ -106,3 +106,124 @@ def test_prazo_de_envio_acompanha_o_item():
     vistos = {78: {**VISTOS[78], "prazo_envio": "Ships in 2 weeks"}}
     assert montar_itens([{"produto_id": 78, "quantidade": 1}], vistos)[0].prazo_envio == "Ships in 2 weeks"
     assert montar_itens([{"produto_id": 78, "quantidade": 1}], VISTOS)[0].prazo_envio is None
+
+
+def test_moeda_vale_a_ultima_que_a_pessoa_citou_na_conversa():
+    from validacao import conferir_moeda_da_conversa
+    with pytest.raises(EscolhaInvalida, match="outra moeda"):
+        conferir_moeda_da_conversa(["2 celulares até R$ 2.000 cada.", "Pode seguir assim mesmo."])
+    with pytest.raises(EscolhaInvalida, match="outra moeda"):
+        conferir_moeda_da_conversa(["3 laptops até US$ 2.000 cada.", "Agora 2 celulares até R$ 1.500 cada."])
+    conferir_moeda_da_conversa(["2 celulares até R$ 2.000 cada.", "Então até US$ 400 cada."])
+    conferir_moeda_da_conversa(["Quero 3 Apple AirPods.", "Sim, pode aumentar para 4."])
+
+
+def test_alternativas_mesma_categoria_quantidade_possivel_e_dentro_do_limite():
+    from validacao import alternativas
+    lap = {"categoria": "laptops", "pedido_minimo": 1}
+    vistos = {
+        81: {**lap, "id": 81, "titulo": "Lenovo", "preco_usd": 1099.99, "estoque": 40},
+        80: {**lap, "id": 80, "titulo": "Huawei", "preco_usd": 1399.99, "estoque": 75,
+             "prazo_envio": "Ships overnight"},
+        78: {**lap, "id": 78, "titulo": "MacBook", "preco_usd": 1999.99, "estoque": 2},     # estoque < 3
+        79: {**lap, "id": 79, "titulo": "Asus", "preco_usd": 1799.99, "estoque": 45,
+             "pedido_minimo": 5},                                                          # mínimo > 3
+        82: {**lap, "id": 82, "titulo": "Caro", "preco_usd": 2500.00, "estoque": 9},       # acima do teto
+        100: {"id": 100, "titulo": "AirPods", "preco_usd": 129.99, "estoque": 67,
+              "pedido_minimo": 1, "categoria": "mobile-accessories"},                     # outra categoria
+    }
+    itens = montar_itens([{"produto_id": 81, "quantidade": 3}], vistos)
+    alts = alternativas(itens, vistos, {"moeda": "USD", "max_unitario": 2000, "max_total": None})
+    assert [(a["produto_id"], a["prazo_envio"], a["diferenca_no_pedido_usd"]) for a in alts] == \
+        [(80, "Ships overnight", 900.0)]
+    # Sem orçamento, só estoque, mínimo e categoria filtram, em ordem de preço.
+    assert [a["produto_id"] for a in alternativas(itens, vistos, None)] == [80, 82]
+    # Orçamento total num pedido de um item: 3 x 1.399,99 = 4.199,97 passa de 4.000.
+    assert alternativas(itens, vistos, {"moeda": "USD", "max_unitario": None, "max_total": 4000}) == []
+
+
+def test_conversa_anterior_vai_como_contexto_antes_da_mensagem_nova():
+    from agente import mensagens_da_pessoa, montar_mensagem
+    hist = [{"autor": "pessoa", "texto": "Quero 3 Apple AirPods."},
+            {"autor": "agente", "texto": "O mínimo é 4. Quer pedir 4?"}]
+    msg = montar_mensagem("Sim, pode aumentar para 4.", hist)
+    assert (msg.index("Pessoa: Quero 3 Apple AirPods.") < msg.index("Agente: O mínimo é 4")
+            < msg.index("Mensagem nova da pessoa: Sim, pode aumentar para 4."))
+    assert montar_mensagem("Quero 2 celulares.", []) == "Quero 2 celulares."
+    assert mensagens_da_pessoa("Sim, 4.", hist) == ["Quero 3 Apple AirPods.", "Sim, 4."]
+
+
+def test_criterio_mais_barato_e_conferido_contra_as_opcoes_que_cabem():
+    from agente import Resultado, conferir_criterio
+    lap = {"categoria": "laptops", "pedido_minimo": 1, "estoque": 40}
+    vistos = {81: {**lap, "id": 81, "titulo": "Lenovo Yoga 920", "preco_usd": 1099.99},
+              80: {**lap, "id": 80, "titulo": "Huawei Matebook X Pro", "preco_usd": 1399.99}}
+    orc = {"moeda": "USD", "max_unitario": 2000}
+    huawei = [{"produto_id": 80, "quantidade": 3}]
+    motivo = conferir_criterio(Resultado(itens=huawei, resposta="", vistos=vistos, orcamento=orc,
+                                         criterio="mais_barato"))
+    assert "Lenovo Yoga 920" in motivo
+    # O padrão é o mais barato, mesmo com o critério escrito de outro jeito ou ausente.
+    for outro in ("cheapest", "custo-benefício", None):
+        assert "Lenovo Yoga 920" in conferir_criterio(Resultado(itens=huawei, resposta="", vistos=vistos,
+                                                                orcamento=orc, criterio=outro))
+    # Com a necessidade dita pela pessoa, o mais caro pode ser a escolha certa.
+    assert conferir_criterio(Resultado(itens=huawei, resposta="", vistos=vistos, orcamento=orc,
+                                       criterio="necessidade: envio no dia seguinte")) is None
+    assert conferir_criterio(Resultado(itens=[{"produto_id": 81, "quantidade": 3}], resposta="",
+                                       vistos=vistos, orcamento=orc, criterio="mais_barato")) is None
+
+
+def test_pergunta_mesmo_com_limite_de_preco_pede_revisao():
+    from agente import Resultado, perguntou_com_limite
+    vistos = {80: {"id": 80, "titulo": "Huawei", "preco_usd": 1399.99}}
+    orc = {"moeda": "USD", "max_unitario": 1000}
+    assert perguntou_com_limite(Resultado(itens=[], resposta="Qual você prefere?", vistos=vistos,
+                                          orcamento=orc))
+    # Sem limite, a pergunta é legítima (falta critério); em reais, a regra de moeda já cuida.
+    assert not perguntou_com_limite(Resultado(itens=[], resposta="Qual você prefere?", vistos=vistos))
+    assert not perguntou_com_limite(Resultado(itens=[], resposta="Qual você prefere?", vistos=vistos,
+                                              orcamento={"moeda": "BRL", "max_unitario": 2000}))
+    # Recusa explicada, sem pergunta, passa direto.
+    assert not perguntou_com_limite(Resultado(itens=[], resposta="Nenhum laptop custa até US$ 500.",
+                                              vistos=vistos, orcamento=orc))
+
+
+def test_recusa_por_minimo_vem_com_as_opcoes_que_atendem():
+    from agente import Resultado, opcoes_para_corrigir
+    cel = {"categoria": "smartphones", "estoque": 50}
+    vistos = {128: {**cel, "id": 128, "titulo": "Realme C35", "preco_usd": 149.99, "pedido_minimo": 3},
+              132: {**cel, "id": 132, "titulo": "Vivo S1", "preco_usd": 249.99, "pedido_minimo": 1},
+              123: {**cel, "id": 123, "titulo": "iPhone 13 Pro", "preco_usd": 1099.99, "pedido_minimo": 1}}
+    res = Resultado(itens=[{"produto_id": 128, "quantidade": 2}], resposta="", vistos=vistos,
+                    orcamento={"moeda": "USD", "max_unitario": 350})
+    fatos = opcoes_para_corrigir(res)
+    assert "Vivo S1" in fatos and "Realme C35" not in fatos and "iPhone 13 Pro" not in fatos
+
+
+def test_montar_e_perguntar_pede_revisao_contra_requisicao_parcial():
+    from agente import REVISAR_MONTOU_E_PERGUNTOU, REVISAR_PERGUNTA, Resultado, revisao_da_resposta
+    vistos = {81: {"id": 81, "titulo": "Lenovo Yoga 920", "preco_usd": 1099.99}}
+    orc = {"moeda": "USD", "max_unitario": 2000}
+    parcial = Resultado(itens=[{"produto_id": 81, "quantidade": 3}], vistos=vistos, orcamento=orc,
+                        resposta="Escolhi 3 Lenovo. Quanto aos relógios, quer aumentar para 7?")
+    assert revisao_da_resposta(parcial) == REVISAR_MONTOU_E_PERGUNTOU
+    pergunta = Resultado(itens=[], vistos=vistos, orcamento=orc, resposta="Qual você prefere?")
+    assert revisao_da_resposta(pergunta) == REVISAR_PERGUNTA
+    pronto = Resultado(itens=[{"produto_id": 81, "quantidade": 3}], vistos=vistos, orcamento=orc,
+                       resposta="Escolhi 3 Lenovo Yoga 920, o mais barato que atende.")
+    assert revisao_da_resposta(pronto) is None
+
+
+def test_limite_em_dolar_lido_do_texto_da_pessoa():
+    from agente import Resultado, perguntou_com_limite
+    from validacao import citou_valor_em_dolar
+    assert citou_valor_em_dolar(["3 laptops de até US$ 2.000 cada e 5 relógios de até US$ 150 cada."])
+    assert citou_valor_em_dolar(["uns 2 mil dólares no total"])
+    assert not citou_valor_em_dolar(["Preciso de 2 celulares até R$ 2.000 cada."])  # "R$ 2" não é dólar
+    assert not citou_valor_em_dolar(["Quero 3 Apple AirPods."])
+    vistos = {81: {"id": 81, "titulo": "Lenovo", "preco_usd": 1099.99}}
+    pergunta = Resultado(itens=[], vistos=vistos, resposta="Qual você prefere para os relógios?")
+    # Sem orçamento no JSON (limites diferentes por item), o texto da pessoa basta.
+    assert perguntou_com_limite(pergunta, ["3 laptops até US$ 2.000 cada e 5 relógios até US$ 150 cada."])
+    assert not perguntou_com_limite(pergunta, ["2 celulares até R$ 2.000 cada."])

@@ -71,13 +71,15 @@ async def buscar_produtos(termo: str) -> list[dict]:
 
 @mcp.tool()
 async def detalhar_produto(id: int) -> dict:
-    """Detalha um produto pelo id: descrição, preço, estoque, garantia e avaliação."""
+    """Detalha um produto pelo id: descrição, preço, estoque, pedido mínimo, prazo de envio
+    e garantia."""
     p = await _get(f"/products/{id}")
+    # A nota (rating) fica de fora de propósito: neste catálogo ela não tem relação com as
+    # avaliações do próprio produto (ver README). O que não usamos, o agente não vê.
     return {
         **_resumo(p),
         "descricao": p.get("description"),
         "garantia": p.get("warrantyInformation"),
-        "avaliacao": p.get("rating"),
     }
 
 
