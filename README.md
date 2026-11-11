@@ -2,9 +2,10 @@
 
 *Buy* + *ME*: o agente de compras pensado para o dia a dia da Mercado Eletrônico.
 
-A pessoa escreve o que precisa num chat. O agente busca no catálogo da DummyJSON por um servidor
-MCP, escolhe os itens e salva uma requisição de compra no Postgres. Se nada atende, diz o que
-faltou, sugere o que existe e não cria requisição.
+A pessoa escreve o que precisa num chat. O agente busca no catálogo da DummyJSON por um servidor 
+MCP, escolhe os itens e salva uma requisição de compra no Postgres. Se nada atende, diz o que faltou, 
+sugere o que existe e não cria requisição. Nenhum produto ou preço inventado chega à requisição, e 
+nenhum erro passa em silêncio.
 
 ## Como funciona
 
@@ -23,12 +24,45 @@ faltou, sugere o que existe e não cria requisição.
    número, os itens, o prazo de envio de cada um, o total e as outras opções que também cabem, com
    quanto cada uma acrescentaria ao pedido. Se nada atende, explica o que faltou e nada é gravado.
 
+**Arquitetura: as quatro peças e os serviços externos**
+
+```mermaid
+flowchart LR
+    subgraph compose["docker compose up"]
+        chat["Chat: React + nginx<br/>porta 3000"]
+        subgraph backend["Backend: FastAPI, porta 8000"]
+            agente["Agente<br/>loop de tool calling"]
+            conf["Conferências<br/>regras de dinheiro"]
+            cot["Cotação<br/>PTAX, cache de 1 h"]
+        end
+        mcp["Servidor MCP<br/>buscar_produtos, detalhar_produto"]
+        db[("Postgres<br/>requisições e itens")]
+    end
+    subgraph externos["Serviços externos"]
+        llm["OpenRouter<br/>Claude Haiku 4.5"]
+        dummy["DummyJSON<br/>catálogo"]
+        bc["Banco Central<br/>PTAX"]
+    end
+    pessoa(["Pessoa no navegador"]) --> chat
+    chat -->|"POST /requisicoes"| agente
+    chat -->|"GET /cotacao"| cot
+    agente -->|"ferramentas"| llm
+    agente -->|"MCP"| mcp
+    mcp --> dummy
+    agente --> conf
+    conf -->|"transação"| db
+    cot --> bc
+```
+
+O caminho completo de um pedido, com as conferências e as revisões, está em
+[docs/DETALHES.md](docs/DETALHES.md#o-caminho-de-um-pedido-do-chat-ao-postgres).
+
 ## Como rodar
 
 Precisa de Docker com o Compose.
 
 ```bash
-cp .env.example .env    # cole a chave da OpenRouter em OPENROUTER_API_KEY
+cp .env.example .env    # cole a chave da OpenRouter em OPENROUTER_API_KEY (por boa prática, chave não se versiona)
 docker compose up
 ```
 
@@ -72,6 +106,7 @@ pedido, atuou como QA focado em prejuízo ([detalhes](docs/DETALHES.md#como-usei
 
 ## Mais detalhes
 
-[docs/DETALHES.md](docs/DETALHES.md) tem as peças e portas, o agente e a conversa, o que sabemos do
+[docs/DETALHES.md](docs/DETALHES.md) tem as peças e portas, o caminho de um pedido, o agente e a
+conversa, o que sabemos do
 catálogo (desconto, prazo, nota, garantia), a cotação do dólar, a bateria de QA, o custo medido, a
 tabela de erros e os limites conhecidos.

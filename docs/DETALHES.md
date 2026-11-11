@@ -17,6 +17,34 @@ enquanto cria as tabelas, e um healthcheck pelo socket diria "pronto" cedo demai
 proteção, o backend ainda tenta conectar por até 10 s, registrando cada tentativa no log. As peças
 se encontram pelo nome na rede interna do Compose (`db`, `mcp-server`, `backend`).
 
+## O caminho de um pedido, do chat ao Postgres
+
+```mermaid
+flowchart TD
+    A["Pessoa escreve no chat"] --> B["Chat envia o pedido e as mensagens recentes, como contexto"]
+    B --> C{"Modelo decide o próximo passo"}
+    C -->|"busca ou detalhe, até 8 passos"| M["Servidor MCP consulta a DummyJSON"]
+    M -->|"resultado"| C
+    C -->|"responde em JSON"| K{"Código confere a resposta"}
+    K -->|"dinheiro não confere"| X["Motivo e opções que atendem voltam ao modelo, 1 correção"]
+    X --> C
+    K -->|"pergunta indevida, pedido parcial ou opção mais barata"| R["Revisão pedida ao modelo, 1 vez"]
+    R --> C
+    K -->|"falta o quê, quantos ou um critério"| P["Pergunta mostrando o que existe, nada é gravado"]
+    P -.->|"a pessoa responde"| A
+    K -->|"tudo confere"| G[("Grava requisição e itens numa transação")]
+    G --> S["Chat mostra itens, prazo e total, e as opções que também cabem, com a diferença no pedido"]
+```
+
+- **Dinheiro não confere:** preço, estoque, pedido mínimo, orçamento ou moeda. O modelo recebe o
+  motivo e as opções que atendem, e corrige uma vez; o backend confere de novo antes de gravar.
+- **Revisão:** o código nota três respostas que o prompt proíbe e pede ao modelo para revisar, uma
+  vez: perguntar "qual você prefere?" tendo quantidade e limite, montar a requisição e ainda
+  perguntar (pedido parcial), ou escolher acima de uma opção mais barata sem uma necessidade dita.
+  Ver [O agente](#o-agente-e-o-que-ele-não-pode-inventar).
+- **Pergunta:** só quando falta o essencial. A resposta da pessoa volta com a conversa como
+  contexto ([A conversa](#a-conversa)).
+
 ## Testes
 
 ```bash
