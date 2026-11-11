@@ -17,7 +17,8 @@ faltou, sugere o que existe e não cria requisição.
 5. O backend confere o que envolve dinheiro contra o catálogo: preço, estoque, pedido mínimo e
    orçamento. Se algo não confere, o modelo recebe o motivo e corrige uma vez.
 6. Com tudo certo, a requisição e os itens são gravados juntos no Postgres, e o chat mostra o
-   número, os itens e o total. Se nada atende, o chat explica o que faltou e nada é gravado.
+   número, os itens, o prazo de envio de cada um e o total. Se nada atende, o chat explica o que
+   faltou e nada é gravado.
 
 ## Como rodar
 
@@ -65,7 +66,7 @@ moeda, estoque, pedido mínimo, manipulação do pedido) e auditoria do banco co
 | Peça | Porta | O que é |
 |---|---|---|
 | `frontend` | 3000 | chat em React (o nginx serve o build e repassa `/api` ao backend) |
-| `backend` | 8000 | FastAPI com `POST /requisicoes` e `GET /requisicoes`; o agente mora aqui |
+| `backend` | 8000 | FastAPI com `POST /requisicoes`, `GET /requisicoes` e `GET /cotacao`; o agente mora aqui |
 | `mcp-server` | interna | servidor MCP com `buscar_produtos(termo)` e `detalhar_produto(id)` |
 | `db` | interna | Postgres 16; as tabelas nascem do [db/init.sql](db/init.sql) na primeira subida |
 
@@ -79,7 +80,7 @@ se encontram pelo nome na rede interna do Compose (`db`, `mcp-server`, `backend`
 
 ```bash
 cd mcp-server && pip install -r requirements-dev.txt && pytest -q   # 8 testes das ferramentas
-cd backend    && pip install -r requirements-dev.txt && pytest -q   # 31 testes: regras e erros
+cd backend    && pip install -r requirements-dev.txt && pytest -q   # 38 testes: regras, erros e cotação
 python scripts/avaliar.py      # com o ambiente no ar: 8 pedidos de teste, mostra os acertos
 python scripts/qa_riscos.py    # com o ambiente no ar: bateria de QA focada em prejuízo
 ```
@@ -142,9 +143,11 @@ pedido mínimo. O resto foi decidido assim:
   a compra (de lista, com desconto ou negociado com o fornecedor) é uma decisão de negócio do
   cliente. Com ela definida, a mudança é pequena: trazer o desconto na busca e calcular o preço
   em `backend/validacao.py`.
-- **Prazo de envio** (`shippingInformation`, de "Ships overnight" a "Ships in 1 month"): ainda não
-  é considerado. Num pedido com prazo ("preciso até sexta"), o agente pode escolher um item que
-  chega tarde.
+- **Prazo de envio** (`shippingInformation`, de "Ships overnight" a "Ships in 1 month"): aparece em
+  cada item da requisição (coluna "Envio" do chat, traduzida) e é gravado no banco, porque
+  dependendo do prazo a compra não faz sentido. O agente também vê o prazo na busca. Ainda não é
+  uma regra conferida pelo código: num pedido com prazo ("preciso até sexta"), a escolha depende
+  do modelo. Virar regra exige definir dias úteis ou corridos, e envio ou entrega.
 - **Garantia e devolução** (`warrantyInformation`, `returnPolicy`): 12 produtos não têm garantia e
   44 não aceitam devolução. Não viraram regra porque dependem da política de compras do cliente
   (ex.: "eletrônico só com 1 ano de garantia"). Com a política, viram mais uma conferência no
@@ -153,6 +156,17 @@ pedido mínimo. O resto foi decidido assim:
   estoque 9 e mínimo 32), e 8 deles aparecem no catálogo como "In Stock". O agente não depende
   desse status: as regras de estoque e de mínimo, juntas, recusam esses itens sem nenhuma regra
   especial.
+
+### Cotação do dólar
+
+O topo do chat mostra a PTAX do Banco Central (ex.: "Dólar PTAX 10/11: R$ 5,5840"), só como
+referência. O backend busca a cotação (`backend/cotacao.py`, rota `GET /cotacao`), guarda por
+1 hora e usa a última publicada nos últimos 7 dias, o que cobre fim de semana e feriado.
+
+Ela fica fora do agente e da requisição, que continuam em dólar. De propósito, não há um "≈ R$" ao
+lado do total: esse valor pareceria definitivo, mas não inclui impostos, frete nem o câmbio do dia
+do pagamento. Se o Banco Central não responder, o selo mostra "Cotação do dólar indisponível" e o
+resto funciona normalmente.
 
 ### Bateria de QA
 
@@ -215,6 +229,7 @@ uma linha no log (`docker compose logs backend mcp-server`). O formato é sempre
 | Escolha que não confere mesmo depois da correção: id fora do catálogo, acima do estoque, abaixo do mínimo, acima do orçamento, orçamento em outra moeda | `ESCOLHA_INVALIDA` | 422 | o motivo, por exemplo "Realme C35: pedido 2, mínimo do fornecedor 3" |
 | Postgres fora do ar ao gravar ou listar | `BANCO_INDISPONIVEL` | 503 | "Nada foi salvo." |
 | Pedido vazio ou com mais de 1000 caracteres | `PEDIDO_INVALIDO` | 422 | "Escreva o pedido com 3 a 1000 caracteres." |
+| Banco Central fora do ar ou sem PTAX nos últimos 7 dias (só a cotação do topo) | `COTACAO_INDISPONIVEL` | 503 | o selo mostra "Cotação do dólar indisponível"; os pedidos seguem normais |
 | Qualquer erro não previsto | `ERRO_INTERNO` | 500 | "Erro inesperado no servidor." (o stack vai para o log) |
 | Backend caiu (o nginx responde no lugar dele) ou o navegador perdeu a conexão | `HTTP_502`, `SEM_CONEXAO` | — | "O backend está fora do ar ou não respondeu." |
 
@@ -242,8 +257,9 @@ suba de novo.
   incluir num novo pedido, em vez de fazer uma pergunta que a pessoa não teria como responder.
 - **Orçamento:** o código confere a escolha contra o limite que o modelo leu no pedido. Se o modelo
   ler errado (ex.: "US$ 150 cada" como total), o erro tende ao lado seguro, que é recusar.
-- **Preço de lista e prazo de envio:** o desconto do catálogo não é aplicado e o prazo de envio
-  não é considerado. Ver [O catálogo](#o-catálogo-o-que-usamos-e-o-que-sabemos).
+- **Preço de lista e prazo de envio:** o desconto do catálogo não é aplicado, e o prazo de envio é
+  mostrado, mas não conferido contra um prazo pedido. Ver
+  [O catálogo](#o-catálogo-o-que-usamos-e-o-que-sabemos).
 - **Sem conversão de moeda**, sem reserva de estoque (o estoque é conferido na hora do pedido, não
   reservado) e sem autenticação.
 - **Busca por palavra em inglês:** um item que existe com outro nome pode não ser achado.
@@ -268,7 +284,10 @@ trabalho no dia a dia:
   críticos entraram no `avaliar.py` para não voltarem.
 - **Uma lição de prompt:** um ajuste amplo demais fez o pedido de exemplo regredir (o agente passou
   a perguntar o modelo), e o `avaliar.py` pegou na hora. Desde então, só entra no prompt a linha
-  que corrige uma falha medida.
+  que corrige uma falha medida. A mesma vigilância valeu para dados novos: quando o prazo de envio
+  entrou na busca, o modelo passou a "ajustar" a quantidade para o mínimo do fornecedor (2 virava
+  3, ou seja, comprava mais que o pedido). A avaliação pegou, e a regra "nunca mude a quantidade
+  pedida" entrou no prompt. Depois disso, três rodadas seguidas deram 8/8 e 22/22.
 - **O que os testes pegaram no caminho** (está no histórico de commits):
   - a chave com bloqueio ZDR recusando o primeiro modelo;
   - o cliente MCP embrulhando erros num `ExceptionGroup`, o que escondia a causa real;
