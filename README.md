@@ -27,7 +27,7 @@ nenhum erro passa em silêncio.
 **Arquitetura: as quatro peças e os serviços externos**
 
 ```mermaid
-flowchart LR
+flowchart TB
     subgraph compose["docker compose up"]
         chat["Chat: React + nginx<br/>porta 3000"]
         subgraph backend["Backend: FastAPI, porta 8000"]
