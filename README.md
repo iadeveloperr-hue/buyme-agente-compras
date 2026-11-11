@@ -27,17 +27,21 @@ Abra **http://localhost:3000** e envie o pedido de exemplo, que já vem preenchi
 
 1. **O modelo decide quais ferramentas chamar.** O loop de tool calling é escrito à mão, sem
    framework, e não tem fluxo fixo ([backend/agente.py](backend/agente.py)).
-2. **Preço, estoque e total vêm do catálogo e do código, nunca do LLM.** O modelo devolve só id e
-   quantidade, e um id que não veio de uma busca é recusado como invenção.
+2. **Tudo o que envolve dinheiro é conferido no código, nunca pelo LLM.** Preço, estoque, pedido
+   mínimo do fornecedor, orçamento e total vêm do catálogo e do código. O modelo devolve só id,
+   quantidade e o orçamento que leu no pedido. Se o código recusa a escolha, o modelo recebe o
+   motivo e tem uma chance de corrigir.
 3. **Nenhum erro silencioso.** Toda falha tem código, mensagem clara no chat e linha no log
    ([tabela](#tratamento-de-erros)).
 4. **Modelo `anthropic/claude-haiku-4.5`.** A chave do case bloqueia provedores sem
-   *Zero Data Retention*, e o `gpt-4o-mini` foi recusado. Para trocar, mude `OPENROUTER_MODEL`.
-5. **Gravar fica no backend, não numa 3ª ferramenta MCP.** A escrita passa pela validação do item 2
-   numa transação: requisição e itens entram juntos, ou nada entra.
+   *Zero Data Retention*, e o `gpt-4o-mini` foi recusado. Custa cerca de US$ 0,006 por pedido
+   ([custo](#custo)). Para trocar, mude `OPENROUTER_MODEL`.
+5. **Gravar fica no backend, não numa 3ª ferramenta MCP.** A escrita passa pelas conferências do
+   item 2 numa transação: requisição e itens entram juntos, ou nada entra.
 
-**Uso de IA:** o projeto foi construído com o Claude Code. Os detalhes estão em
-[Como usei IA](#como-usei-ia).
+**Testado contra prejuízo:** uma [bateria de QA](#bateria-de-qa) com 22 cenários (orçamento,
+moeda, estoque, pedido mínimo, manipulação do pedido) e auditoria do banco contra o catálogo.
+**Uso de IA:** construído com o Claude Code ([como usei](#como-usei-ia)).
 
 ---
 
@@ -62,36 +66,97 @@ se encontram pelo nome na rede interna do Compose (`db`, `mcp-server`, `backend`
 
 ```bash
 cd mcp-server && pip install -r requirements-dev.txt && pytest -q   # 8 testes das ferramentas
-cd backend    && pip install -r requirements-dev.txt && pytest -q   # 18 testes: regras e erros
-python scripts/avaliar.py    # com o ambiente no ar: 6 pedidos de teste, mostra os acertos
+cd backend    && pip install -r requirements-dev.txt && pytest -q   # 31 testes: regras e erros
+python scripts/avaliar.py      # com o ambiente no ar: 8 pedidos de teste, mostra os acertos
+python scripts/qa_riscos.py    # com o ambiente no ar: bateria de QA focada em prejuízo
 ```
 
 Os testes das ferramentas usam o protocolo MCP de verdade, com um cliente em memória, e a DummyJSON
-simulada (`respx`). Nenhum teste precisa de chave de LLM ou de rede. O CI
+simulada (`respx`). Nenhum teste unitário precisa de chave de LLM ou de rede. O CI
 ([.github/workflows/ci.yml](.github/workflows/ci.yml)) roda o lint, os testes e o build.
 
 O `avaliar.py` checa o agente sem depender de impressão. Para cada pedido ele confere se foi
-atendido, a quantidade e o teto de preço, sem exigir um produto específico. Três dos seis pedidos
-**não** devem ser atendidos: tratores, laptops abaixo de US$ 500 e um "iPhone 19". No caso do
-iPhone, ele também confere se as alternativas sugeridas existem no catálogo. A última execução deu 6/6.
+atendido, a quantidade e o teto de preço, sem exigir um produto específico. Cinco dos oito
+pedidos **não** devem ser atendidos:
+- tratores;
+- laptops abaixo de US$ 500;
+- um "iPhone 19", em que ele também confere se as alternativas sugeridas existem;
+- um orçamento em reais;
+- uma compra abaixo do mínimo do fornecedor.
+
+A última execução deu 8/8.
 
 ### O agente e o que ele não pode inventar
 
-- O prompt manda buscar em inglês (o catálogo é em inglês), tentar sinônimos antes de desistir,
-  respeitar quantidade e orçamento e responder num JSON fixo: `{"itens": [{"produto_id",
-  "quantidade"}], "resposta"}`.
-- O backend guarda todo produto que as ferramentas devolveram e monta os itens a partir deles
-  ([backend/validacao.py](backend/validacao.py)). Um id que não veio do catálogo é recusado, uma
-  quantidade acima do estoque também, e a conta é feita em `Decimal`.
+- O prompt manda buscar em inglês e no singular (o catálogo é em inglês), tentar sinônimos,
+  respeitar quantidade, orçamento, estoque e pedido mínimo, e responder sempre num JSON fixo:
+  `{"itens": [{"produto_id", "quantidade"}], "orcamento": {"moeda", "max_unitario",
+  "max_total"}, "resposta"}`. Perguntas e recusas também vão nesse JSON.
+- O backend guarda todo produto que as ferramentas devolveram e confere a escolha contra eles
+  ([backend/validacao.py](backend/validacao.py)). Ele recusa:
+  - id que não veio do catálogo;
+  - quantidade acima do estoque ou abaixo do pedido mínimo;
+  - preço acima do limite por unidade e total acima do limite total;
+  - um pedido com valor em reais ou euros e sem menção a dólar, por uma regra fixa que não
+    depende do modelo.
+
+  A conta é feita em `Decimal`.
+- **Correção em vez de desistência:** a mesma conferência roda ainda dentro do loop. Se ela recusa
+  (ex.: "Brown Leather Belt Watch: pedido 6, mínimo do fornecedor 7"), o modelo recebe o motivo e
+  corrige uma vez. A correção aparece na lista de ferramentas do chat como
+  `conferencia_do_sistema`, e o backend confere de novo antes de gravar.
 - **Id chutado:** num teste com "mouses" (que a DummyJSON não tem), o modelo chutava ids (1 a 5,
   depois 101 a 104) para "explorar" o catálogo, mesmo com o prompt proibindo. A regra foi para o
   código: `detalhar_produto` com um id que não veio de busca nem chega ao catálogo.
-- **Quando nada atende:** se a busca trouxe parecidos, o agente cita até 3 alternativas reais com
-  preço ("iPhone 19 não existe; há iPhone 13 Pro por US$ 1.099,99…"). A requisição fica vazia e a
-  pessoa decide.
-- **Por que o Haiku:** testei quais modelos a chave aceita com ferramentas
-  ([scripts/testar_modelos.py](scripts/testar_modelos.py)). Passaram o Claude Haiku/Sonnet 4.5, o
-  GPT-4.1-mini e o GPT-5-mini. O Haiku é rápido, barato e bom em chamar ferramentas.
+- **Quando nada atende:** se a busca trouxe parecidos, o agente cita alternativas reais com preço
+  ("iPhone 19 não existe; há iPhone 13 Pro por US$ 1.099,99…"). A requisição fica vazia e a
+  pessoa decide. Sem critério nenhum ("Quero 2 celulares"), ele pede o modelo ou o orçamento em
+  vez de escolher às cegas. Com quantidade e limite de preço, ele escolhe sozinho.
+- **Por que o Haiku 4.5:** testei quais modelos a chave aceita com ferramentas
+  ([scripts/testar_modelos.py](scripts/testar_modelos.py)). O Haiku 4.5 é rápido e passa na
+  avaliação e na bateria de QA. A comparação com o Haiku 5.5 está em [Custo](#custo).
+
+### Bateria de QA
+
+[scripts/qa_riscos.py](scripts/qa_riscos.py) simula um QA de compras: cada cenário é um erro que
+custaria dinheiro. Roda de ponta a ponta contra o sistema no ar e termina auditando cada item
+gravado contra o catálogo real (preço, estoque e pedido mínimo).
+
+| Achado na primeira rodada | Risco | Como ficou |
+|---|---|---|
+| "3 laptops de até **R$** 2.000" virou compra de laptops de US$ 1.099 a 1.499 | crítico: ~4x acima do orçamento | o modelo copia limite e moeda; o código confere; valor em reais sem dólar nunca vira compra |
+| Requisições abaixo do mínimo do fornecedor (2 Realme C35, mínimo 3; relógios, mínimo 7) | alto: pedido recusado pelo fornecedor | o mínimo vem na busca e é conferido no código |
+| "3 laptops de até US$ 1.200" recusado: achou que precisava de 3 modelos diferentes | médio: retrabalho | prompt: N unidades podem ser do mesmo modelo |
+| Pergunta ou recusa do modelo saía do JSON e chegava à pessoa como erro 502 | médio: a pessoa via um erro | JSON sempre; o texto que sobrar vira resposta, sem requisição |
+| Busca vazia chegava ao modelo como texto vazio, e ele culpava o catálogo | baixo | a lista vazia chega explícita |
+| O mesmo pedido enviado 2 vezes ao mesmo tempo cria 2 requisições | alto em produção | **em aberto**, ver [limites](#limites-conhecidos) |
+
+Resultado atual: **22/22 cenários** e a auditoria do banco sem nenhum problema. Também passaram 4/4
+payloads inválidos, SQL injection no texto e as tentativas de mudar o preço ou as regras pelo
+pedido.
+
+### Custo
+
+Medido pelo próprio relatório de uso da OpenRouter, em 6 pedidos variados (3 sem critério, 1 com
+orçamento, o pedido de exemplo e um item inexistente):
+
+| | Haiku 4.5 (em uso) | Haiku 5.5 (testado) |
+|---|---|---|
+| Preço por 1M de tokens (entrada / saída) | US$ 1,00 / 5,00 | US$ 0,10 / 0,50 |
+| Tokens por pedido (entrada / saída) | ~4.800 / ~250 | ~7.400 / ~700 |
+| Chamadas ao modelo por pedido | 2,2 | 2,3 |
+| **Custo por pedido** | **~US$ 0,006** | ~US$ 0,001 |
+| Tempo por pedido | ~4 s | ~6 s |
+
+- Mil pedidos custam cerca de US$ 6. O limite de 8 passos e 100 s segura o pior caso em alguns
+  centavos.
+- O Haiku 5.5 tem o token 10x mais barato, mas o pedido sai cerca de 5x mais barato, porque ele
+  gasta mais tokens. Também é 1,5x mais lento e, no teste, não seguiu uma regra do prompt: em
+  "Quero 2 celulares", sem critério nenhum, escolheu um modelo sozinho. Se o volume crescer, é a
+  primeira alavanca. Antes, porém, seria preciso ajustar o prompt e passar de novo pela avaliação
+  e pela bateria de QA.
+- O cache de prompt ainda não se aplica: a parte fixa (instruções e ferramentas) tem cerca de
+  2 mil tokens, e o mínimo para cachear no Haiku 4.5 é 4.096.
 
 ### Tratamento de erros
 
@@ -107,18 +172,20 @@ uma linha no log (`docker compose logs backend mcp-server`). O formato é sempre
 | DummyJSON lenta (> 5 s), fora do ar, erro 5xx ou resposta que não é JSON | `CATALOGO_INDISPONIVEL` | 503 | "O catálogo está fora do ar ou lento. Nenhuma requisição foi criada." |
 | Servidor MCP fora do ar ou caiu no meio | `FERRAMENTAS_INDISPONIVEIS` | 503 | "O serviço de catálogo (MCP) não respondeu." |
 | Chave ausente, inválida/expirada (401), sem crédito (402), modelo bloqueado (403/404), limite (429) | `LLM_INDISPONIVEL` | 502 | o motivo exato, por exemplo "a chave da OpenRouter é inválida ou expirou" |
-| Modelo não devolveu o JSON final (mesmo depois de uma segunda chance) ou não concluiu em 8 passos | `RESPOSTA_INVALIDA` | 502 | "O agente não conseguiu concluir o pedido. Tente reformular." |
+| Modelo devolveu resposta vazia ou não concluiu em 8 passos | `RESPOSTA_INVALIDA` | 502 | "O agente não conseguiu concluir o pedido. Tente reformular." |
 | Agente passou de 100 s no total | `TEMPO_ESGOTADO` | 504 | "O agente não concluiu em 100 s." |
-| Id que não veio do catálogo, quantidade acima do estoque ou item mal formado | `ESCOLHA_INVALIDA` | 422 | o motivo, por exemplo "pedido 3, estoque 2" |
+| Escolha que não confere mesmo depois da correção: id fora do catálogo, acima do estoque, abaixo do mínimo, acima do orçamento, orçamento em outra moeda | `ESCOLHA_INVALIDA` | 422 | o motivo, por exemplo "Realme C35: pedido 2, mínimo do fornecedor 3" |
 | Postgres fora do ar ao gravar ou listar | `BANCO_INDISPONIVEL` | 503 | "Nada foi salvo." |
 | Pedido vazio ou com mais de 1000 caracteres | `PEDIDO_INVALIDO` | 422 | "Escreva o pedido com 3 a 1000 caracteres." |
 | Qualquer erro não previsto | `ERRO_INTERNO` | 500 | "Erro inesperado no servidor." (o stack vai para o log) |
 | Backend caiu (o nginx responde no lugar dele) ou o navegador perdeu a conexão | `HTTP_502`, `SEM_CONEXAO` | — | "O backend está fora do ar ou não respondeu." |
 
 O que o modelo pode corrigir sozinho não interrompe a conversa: produto não encontrado, id que não
-veio de busca e argumentos mal formados. Nesses casos ele recebe o motivo como resultado da
-ferramenta, tenta de novo, e a chamada aparece em vermelho na lista "Ferramentas chamadas". Cada
-linha da tabela tem um teste ([backend/tests/test_erros.py](backend/tests/test_erros.py) e
+veio de busca, argumentos mal formados e escolha recusada pela conferência. Nesses casos ele recebe
+o motivo, tenta de novo, e a chamada aparece em vermelho na lista "Ferramentas chamadas". Se o
+modelo responder em texto livre (uma pergunta, uma recusa) mesmo depois de uma segunda chance, o
+texto vira a resposta, sem requisição, e o log registra `RESPOSTA_FORA_DO_FORMATO`. Cada linha da
+tabela tem um teste ([backend/tests/test_erros.py](backend/tests/test_erros.py) e
 [mcp-server/tests/test_tools.py](mcp-server/tests/test_tools.py)).
 
 "Nada encontrado" **não** é erro: o agente responde que o catálogo não tem o item, com
@@ -130,9 +197,18 @@ suba de novo.
 
 ### Limites conhecidos
 
-A DummyJSON tem cerca de 190 produtos e a busca é por palavra em inglês. O prompt orienta a
-traduzir ("notebook" → "laptop"), mas um item que existe com outro nome pode não ser achado. Os
-preços estão em USD, sem conversão de moeda, e não há autenticação.
+- **Duplicidade:** o mesmo pedido enviado duas vezes ao mesmo tempo cria duas requisições. O chat
+  trava o botão enquanto espera, mas um cliente da API que repete a chamada duplica a compra. O
+  próximo passo é aceitar um cabeçalho `Idempotency-Key` gravado com restrição de unicidade.
+- **Sem memória entre pedidos:** cada pedido é independente. Quando falta algo, o agente diz o que
+  incluir num novo pedido, em vez de fazer uma pergunta que a pessoa não teria como responder.
+- **Orçamento:** o código confere a escolha contra o limite que o modelo leu no pedido. Se o modelo
+  ler errado (ex.: "US$ 150 cada" como total), o erro tende ao lado seguro, que é recusar.
+- **Sem conversão de moeda**, sem reserva de estoque (o estoque é conferido na hora do pedido, não
+  reservado) e sem autenticação.
+- **Busca por palavra em inglês:** um item que existe com outro nome pode não ser achado.
+- O LLM não é determinístico. Por isso as regras de dinheiro estão no código, e a avaliação e a
+  bateria de QA foram rodadas várias vezes.
 
 ### Como usei IA
 
@@ -143,10 +219,19 @@ trabalho no dia a dia:
   um commit por peça) e o critério de pronto de cada uma, e revisei as decisões acima.
 - **O Claude Code escreveu** a maior parte do código, rodou os testes e o ambiente, e investigou os
   erros que apareceram.
-- **Eu testei o chat com pedidos fora do roteiro.** Foi assim que surgiram o caso dos "mouses" (que
-  revelou os ids chutados) e o do "iPhone 19" (que virou a regra das alternativas).
+- **Eu testei o chat com pedidos fora do roteiro.** Foi assim que surgiram três casos:
+  - os "mouses", que revelaram os ids chutados;
+  - o "iPhone 19", que virou a regra das alternativas;
+  - os "celulares", que mostraram o agente perguntando quando já tinha como escolher.
+- **Pedi ao Claude Code para agir como um QA focado em prejuízo.** A bateria `qa_riscos.py` achou
+  3 falhas que custariam dinheiro e 2 respostas que viravam erro. Corrigimos todas, e os casos
+  críticos entraram no `avaliar.py` para não voltarem.
+- **Uma lição de prompt:** um ajuste amplo demais fez o pedido de exemplo regredir (o agente passou
+  a perguntar o modelo), e o `avaliar.py` pegou na hora. Desde então, só entra no prompt a linha
+  que corrige uma falha medida.
 - **O que os testes pegaram no caminho** (está no histórico de commits):
   - a chave com bloqueio ZDR recusando o primeiro modelo;
   - o cliente MCP embrulhando erros num `ExceptionGroup`, o que escondia a causa real;
   - o resultado em lista do MCP chegando um bloco por produto, o que fez a trava anti-invenção
-    recusar um produto legítimo. Corrigi a leitura, não a trava.
+    recusar um produto legítimo. Corrigi a leitura, não a trava;
+  - corridas na primeira subida do banco e no reinício do backend.
