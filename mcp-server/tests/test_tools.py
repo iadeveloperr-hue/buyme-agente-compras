@@ -35,6 +35,16 @@ async def test_buscar_produtos_resume_resultado():
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_buscar_produtos_pede_todos_os_resultados():
+    rota = respx.get(f"{DUMMYJSON_URL}/products/search").mock(
+        return_value=httpx.Response(200, json={"products": [LAPTOP] * 23}))
+    erro, dados, _ = await chamar("buscar_produtos", {"termo": "phone"})
+    assert not erro and len(dados["result"]) == 23
+    assert rota.calls.last.request.url.params["limit"] == "0"   # sem corte no meio da lista
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_buscar_produtos_sem_resultado_devolve_lista_vazia():
     respx.get(f"{DUMMYJSON_URL}/products/search").mock(
         return_value=httpx.Response(200, json={"products": []}))

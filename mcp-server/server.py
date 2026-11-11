@@ -55,7 +55,9 @@ async def _get(path: str, params: dict | None = None) -> dict:
 async def buscar_produtos(termo: str) -> list[dict]:
     """Busca produtos no catálogo por palavra-chave EM INGLÊS (ex.: 'laptop', 'phone').
     Retorna id, título, marca, categoria, preço em USD e estoque. Lista vazia = nada encontrado."""
-    data = await _get("/products/search", {"q": termo, "limit": 20})
+    # limit=0 traz todos os resultados. Cortar em 20 escondia 3 dos 23 itens de "phone", e o
+    # agente podia dizer "não tem" quando tinha. O catálogo inteiro tem ~190 produtos.
+    data = await _get("/products/search", {"q": termo, "limit": 0})
     return [_resumo(p) for p in data.get("products", [])]
 
 
