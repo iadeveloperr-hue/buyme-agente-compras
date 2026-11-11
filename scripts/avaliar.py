@@ -1,7 +1,9 @@
-"""Roda 6 pedidos de teste contra o backend no ar e mostra quantos o agente acertou.
+"""Roda 8 pedidos de teste contra o backend no ar e mostra quantos o agente acertou.
 
 Cada caso diz o que se espera, sem fixar qual produto: atendido ou não, a quantidade
 total, o teto de preço unitário e, quando não atende, se sugeriu produtos reais.
+Os dois últimos casos vieram da bateria de QA (scripts/qa_riscos.py): eram falhas que
+custariam dinheiro e ficam aqui para não voltarem.
 Uso: python scripts/avaliar.py
 Atenção: os casos atendidos gravam requisições de verdade no banco."""
 import json
@@ -17,12 +19,17 @@ CASOS = [
      "atendido": True, "quantidade": 3, "teto_unitario": 2000},
     {"pedido": "Preciso de 5 smartphones de até US$ 250 cada para a equipe de campo.",
      "atendido": True, "quantidade": 5, "teto_unitario": 250},
-    {"pedido": "Quero 4 relógios de até US$ 150 cada para brinde de clientes.",
-     "atendido": True, "quantidade": 4, "teto_unitario": 150},
+    # Era "4 relógios": os dois relógios até US$ 150 exigem compra mínima de 7 e de 5 unidades.
+    {"pedido": "Quero 8 relógios de até US$ 150 cada para brinde de clientes.",
+     "atendido": True, "quantidade": 8, "teto_unitario": 150},
     {"pedido": "Preciso de 2 tratores agrícolas.", "atendido": False},
     {"pedido": "Quero 10 laptops de no máximo US$ 500 cada.", "atendido": False},
     # Não existe, mas há parecidos: não cria requisição E sugere modelos reais do catálogo.
     {"pedido": "Quero um iPhone 19.", "atendido": False, "sugere_de": "iphone"},
+    # QA: orçamento em reais virava compra em dólar, cerca de 4x acima do limite.
+    {"pedido": "Preciso de 3 laptops de até R$ 2.000 cada.", "atendido": False},
+    # QA: o Realme C35 tem compra mínima de 3 unidades; 2 seria recusado pelo fornecedor.
+    {"pedido": "Quero 2 Realme C35.", "atendido": False},
 ]
 
 
