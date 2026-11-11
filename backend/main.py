@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 
 import agente
 import asyncpg
+import cotacao
 import httpx
 from erros import erro
 from fastapi import FastAPI, Request
@@ -85,7 +86,8 @@ class Pedido(BaseModel):
 
 def _item_json(i) -> dict:
     return {"produto_id": i.produto_id, "titulo": i.titulo, "quantidade": i.quantidade,
-            "preco_unitario_usd": float(i.preco_unitario_usd), "subtotal_usd": float(i.subtotal_usd)}
+            "preco_unitario_usd": float(i.preco_unitario_usd), "subtotal_usd": float(i.subtotal_usd),
+            "prazo_envio": i.prazo_envio}
 
 
 @app.post("/requisicoes", status_code=201)
@@ -133,9 +135,9 @@ async def criar(p: Pedido):
                 p.pedido, r.resposta, valor)
             await con.executemany(
                 "INSERT INTO requisicao_itens (requisicao_id, produto_id, titulo, quantidade,"
-                " preco_unitario_usd, subtotal_usd) VALUES ($1, $2, $3, $4, $5, $6)",
-                [(req_id, i.produto_id, i.titulo, i.quantidade, i.preco_unitario_usd, i.subtotal_usd)
-                 for i in itens])
+                " preco_unitario_usd, subtotal_usd, prazo_envio) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+                [(req_id, i.produto_id, i.titulo, i.quantidade, i.preco_unitario_usd, i.subtotal_usd,
+                  i.prazo_envio) for i in itens])
     except ERROS_BANCO as e:  # a transação garante: ou grava requisição e itens, ou nada
         raise erro(503, "BANCO_INDISPONIVEL", "O agente montou a requisição, mas não consegui gravá-la "
                    "no banco. Nada foi salvo; tente de novo.", r.ferramentas, causa=e) from e
@@ -161,10 +163,20 @@ async def listar():
         por_req.setdefault(i["requisicao_id"], []).append(
             {"produto_id": i["produto_id"], "titulo": i["titulo"], "quantidade": i["quantidade"],
              "preco_unitario_usd": float(i["preco_unitario_usd"]),
-             "subtotal_usd": float(i["subtotal_usd"])})
+             "subtotal_usd": float(i["subtotal_usd"]), "prazo_envio": i["prazo_envio"]})
     return [{"id": r["id"], "pedido": r["pedido"], "resumo": r["resumo"],
              "total_usd": float(r["total_usd"]), "criada_em": r["criada_em"].isoformat(),
              "itens": por_req.get(r["id"], [])} for r in reqs]
+
+
+@app.get("/cotacao")
+async def cotacao_dolar():
+    """PTAX do dia, só como referência para o topo do chat (ver cotacao.py)."""
+    try:
+        return await cotacao.ptax()
+    except cotacao.CotacaoIndisponivel as e:
+        raise erro(503, "COTACAO_INDISPONIVEL", f"Cotação do dólar indisponível agora ({e}). "
+                   "Os pedidos funcionam normalmente.", causa=e) from e
 
 
 @app.get("/saude")

@@ -31,6 +31,9 @@ def _resumo(p: dict) -> dict:
         # Compra mínima do fornecedor. Fica já na busca: só no detalhe, o modelo raramente via
         # (achado do QA: requisições de 2 Realme C35, cujo mínimo é 3).
         "pedido_minimo": p.get("minimumOrderQuantity"),
+        # Prazo de envio do fornecedor ("Ships in 2 weeks"): volta para a pessoa em cada item,
+        # porque dependendo do prazo a compra não faz sentido.
+        "prazo_envio": p.get("shippingInformation"),
     }
 
 
@@ -57,9 +60,9 @@ async def _get(path: str, params: dict | None = None) -> dict:
 @mcp.tool()
 async def buscar_produtos(termo: str) -> list[dict]:
     """Busca produtos no catálogo por palavra-chave EM INGLÊS (ex.: 'laptop', 'phone').
-    Retorna id, título, marca, categoria, preço em USD, estoque e pedido_minimo (a menor
-    quantidade que o fornecedor aceita; qualquer quantidade maior, até o estoque, também serve).
-    Lista vazia = o catálogo não tem o item."""
+    Retorna id, título, marca, categoria, preço em USD, estoque, pedido_minimo (a menor
+    quantidade que o fornecedor aceita; qualquer quantidade maior, até o estoque, também serve)
+    e prazo_envio (em quanto tempo o fornecedor despacha). Lista vazia = o catálogo não tem o item."""
     # limit=0 traz todos os resultados. Cortar em 20 escondia 3 dos 23 itens de "phone", e o
     # agente podia dizer "não tem" quando tinha. O catálogo inteiro tem ~190 produtos.
     data = await _get("/products/search", {"q": termo, "limit": 0})

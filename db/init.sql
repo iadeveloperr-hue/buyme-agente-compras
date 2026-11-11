@@ -14,7 +14,8 @@ CREATE TABLE IF NOT EXISTS requisicao_itens (
     titulo             TEXT           NOT NULL,
     quantidade         INTEGER        NOT NULL CHECK (quantidade > 0),
     preco_unitario_usd NUMERIC(12, 2) NOT NULL,
-    subtotal_usd       NUMERIC(12, 2) NOT NULL
+    subtotal_usd       NUMERIC(12, 2) NOT NULL,
+    prazo_envio        TEXT                       -- como o catálogo informa ("Ships in 2 weeks")
 );
 
 CREATE INDEX IF NOT EXISTS idx_itens_requisicao ON requisicao_itens(requisicao_id);

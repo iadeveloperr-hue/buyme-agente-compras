@@ -100,3 +100,9 @@ def test_conferencia_dentro_do_loop_devolve_o_motivo_para_o_modelo_corrigir():
     assert conferir_escolha("Quero 3 Realme C35", ok) is None
     em_reais = Resultado(itens=[{"produto_id": 128, "quantidade": 3}], resposta="", vistos=dict(REALME))
     assert "outra moeda" in conferir_escolha("3 Realme C35 até R$ 900 cada", em_reais)
+
+
+def test_prazo_de_envio_acompanha_o_item():
+    vistos = {78: {**VISTOS[78], "prazo_envio": "Ships in 2 weeks"}}
+    assert montar_itens([{"produto_id": 78, "quantidade": 1}], vistos)[0].prazo_envio == "Ships in 2 weeks"
+    assert montar_itens([{"produto_id": 78, "quantidade": 1}], VISTOS)[0].prazo_envio is None

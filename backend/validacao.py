@@ -17,6 +17,7 @@ class Item:
     titulo: str
     quantidade: int
     preco_unitario_usd: Decimal
+    prazo_envio: str | None = None   # informativo: mostrado e gravado, ainda não é regra
 
     @property
     def subtotal_usd(self) -> Decimal:
@@ -48,7 +49,7 @@ def montar_itens(escolhidos: list[dict], vistos: dict[int, dict]) -> list[Item]:
         minimo = p.get("pedido_minimo") or 1
         if qtd < minimo:
             raise EscolhaInvalida(f"{p['titulo']}: pedido {qtd}, mínimo do fornecedor {minimo}")
-        itens.append(Item(pid, p["titulo"], qtd, Decimal(str(p["preco_usd"]))))
+        itens.append(Item(pid, p["titulo"], qtd, Decimal(str(p["preco_usd"])), p.get("prazo_envio")))
     return itens
 
 

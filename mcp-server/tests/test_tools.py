@@ -1,5 +1,5 @@
-"""Testes das ferramentas pelo protocolo MCP de verdade (cliente em memÃ³ria).
-A DummyJSON Ã© simulada com respx: nÃ£o precisa de rede nem de chave de LLM."""
+"""Testes das ferramentas pelo protocolo MCP de verdade (cliente em memória).
+A DummyJSON é simulada com respx: não precisa de rede nem de chave de LLM."""
 import json
 
 import httpx
@@ -11,7 +11,7 @@ from server import DUMMYJSON_URL, mcp
 LAPTOP = {"id": 78, "title": "Apple MacBook Pro 14 Inch Space Grey", "brand": "Apple",
           "category": "laptops", "price": 1999.99, "stock": 24,
           "description": "M1 Pro", "warrantyInformation": "1 year", "rating": 4.6,
-          "minimumOrderQuantity": 1}
+          "minimumOrderQuantity": 1, "shippingInformation": "Ships in 2 weeks"}
 
 
 async def chamar(nome, args):
@@ -30,7 +30,8 @@ async def test_buscar_produtos_resume_resultado():
     assert not erro
     item = dados["result"][0]
     assert item == {"id": 78, "titulo": LAPTOP["title"], "marca": "Apple",
-                    "categoria": "laptops", "preco_usd": 1999.99, "estoque": 24, "pedido_minimo": 1}
+                    "categoria": "laptops", "preco_usd": 1999.99, "estoque": 24, "pedido_minimo": 1,
+                    "prazo_envio": "Ships in 2 weeks"}
 
 
 @pytest.mark.asyncio
